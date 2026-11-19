@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contradicta · praxis de la opinión</title>
+<meta name="description" content="Encuestas en vivo con índice de tensión: mide cuán dividida está la opinión, toma posición y defiéndela con argumentos.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Contradicta · praxis de la opinión">
+<meta property="og:description" content="Encuestas en vivo con índice de tensión: mide cuán dividida está la opinión, toma posición y defiéndela con argumentos.">
+<meta property="og:image" content="/icon.svg">
+<meta name="theme-color" content="#09090f">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="mast">
+  <div class="wrap">
+    <div class="mast-top">
+      <div class="brand">
+        <span class="eyebrow"><span class="dot"></span>Encuestas en vivo</span>
+        <h1>Contradi<span class="x">cta</span></h1>
+        <div class="sub">praxis de la opinión.</div>
+      </div>
+      <div class="motto">Toda sociedad es una <b>contradicción en movimiento</b>. Contradicta la hace <b>visible</b>.</div>
+    </div>
+    <div class="topbar" style="margin-top:30px">
+      <nav class="tabs" id="tabs" style="margin-top:0">
+        <a href="#encuestas" data-r="encuestas">Encuestas</a>
+        <a href="#pulso" data-r="pulso">Pulso</a>
+        <a href="#crear" data-r="crear">Crear</a>
+        <a href="#manifiesto" data-r="manifiesto">Manifiesto</a>
+      </nav>
+      <div class="region" id="region" title="Se usa para comparar la opinión en México y en el extranjero">
+        <span>Participo desde</span>
+        <button data-g="mx">México</button>
+        <button data-g="ext">El extranjero</button>
+      </div>
+    </div>
+  </div>
+</header>
+<div class="wrap"><div class="status warn" id="status">Conectando…</div></div>
+<main class="wrap" id="view"></main>
+<footer><div class="wrap">Contradicta · praxis de la opinión. Los resultados reflejan solo a quienes participan; no son una muestra representativa. Un voto por dispositivo; puedes cambiarlo cuando quieras.</div></footer>
+<div class="toast" id="toast"></div>
+<script src="/app.js" defer></script>
+</body>
+</html>

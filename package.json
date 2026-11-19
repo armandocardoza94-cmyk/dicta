@@ -1,0 +1,19 @@
+{
+  "name": "contradicta",
+  "version": "2.0.0",
+  "description": "Contradicta — praxis de la opinión. Encuestas en vivo con índice de tensión, argumentos y resultados en tiempo real.",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "4.21.2",
+    "pg": "8.13.1"
+  },
+  "license": "MIT"
+}

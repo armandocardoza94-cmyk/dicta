@@ -1,0 +1,21 @@
+# Blueprint de Render: servicio web + Postgres
+services:
+  - type: web
+    name: contradicta
+    runtime: node
+    plan: free
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: contradicta-db
+          property: connectionString
+databases:
+  - name: contradicta-db
+    plan: free
