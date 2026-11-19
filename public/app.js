@@ -91,7 +91,7 @@ const S = {
   region: store("region") || null,
   admin: store("adminToken") || "",
   filter:{cat:"Todas", q:"", sort:"recientes"},
-  draft:{}, builtFor:null, detail:{id:null, args:[], canManage:false}
+  draft:{}, builtFor:null, detail:{id:null, args:[], comments:[], canManage:false}, debate:{text:"", replyTo:null, replyText:""}, scrollTo:null
 };
 const $ = (s, r=document) => r.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -146,13 +146,14 @@ function render(force){
   if (r==="crear"){ if (force || S.builtFor!=="crear") renderCreate(); return; }
   if (r==="manifiesto"){ if (force || S.builtFor!=="manifiesto") renderAbout(); return; }
   if (r==="pulso") return renderPulse();
+  if (r==="debates") return renderDebates();
   if (r.startsWith("p-")) return renderDetail(r.slice(2), force);
   renderList();
 }
 window.addEventListener("hashchange", ()=>{
   const r = route();
   if (r.startsWith("admin=")){ S.admin = decodeURIComponent(r.slice(6)); store("adminToken", S.admin || null); toast(S.admin?"Modo administración activado":"Modo administración desactivado"); location.hash="encuestas"; return; }
-  S.builtFor=null; render(true); window.scrollTo(0,0);
+  S.builtFor=null; render(true); if (!S.scrollTo) window.scrollTo(0,0);
 });
 
 /* ---------- Región del participante ---------- */
@@ -194,14 +195,14 @@ function renderList(){
   if (f.sort==="votadas") polls.sort((a,b)=>b.agg.n-a.agg.n);
   if (f.sort==="tensas") polls.sort((a,b)=>(tensionOf(b)??-1)-(tensionOf(a)??-1));
   if (f.sort==="tendencia") polls.sort((a,b)=>b.agg.last24-a.agg.last24 || b.agg.n-a.agg.n);
-  if (f.sort==="debatidas") polls.sort((a,b)=>(b.argsCount||0)-(a.argsCount||0));
+  if (f.sort==="debatidas") polls.sort((a,b)=>((b.commentsCount||0)+(b.argsCount||0))-((a.commentsCount||0)+(a.argsCount||0)));
 
   const cards = polls.map(p=>{ const t=p.agg, tn=tensionOf(p); const fresh = Date.now()-(p.createdAt||0) < 864e5;
     return `
     <a class="card" href="#p-${esc(p.id)}">
       <div class="meta"><span class="tag">${esc(p.category)}</span><span>${esc(TYPES[p.type]?.name||"")}</span>${p.closed?'<span class="tag red">Cerrada</span>':""}${fresh&&!p.closed?'<span class="badge-new">Nueva</span>':""}${p.myVote!==null&&p.myVote!==undefined?"<span>· votaste</span>":""}</div>
       <h3>${esc(p.title)}</h3>
-      <div class="foot"><span>${fmt(t.n)} ${t.n===1?"voto":"votos"}${t.last24?` <span class="hot">· +${t.last24} hoy</span>`:""}${p.argsCount?` <span class="args-n">· ${p.argsCount} arg.</span>`:""}</span>
+      <div class="foot"><span>${fmt(t.n)} ${t.n===1?"voto":"votos"}${t.last24?` <span class="hot">· +${t.last24} hoy</span>`:""}${p.argsCount?` <span class="args-n">· ${p.argsCount} arg.</span>`:""}${p.commentsCount?` <span class="args-n">· ${p.commentsCount} msj.</span>`:""}</span>
         <span style="display:flex;align-items:center">${tn===null?"Tensión —":"Tensión "+Math.round(tn*100)}<span class="tbar"><i style="width:${Math.round((tn||0)*100)}%"></i></span></span></div>
     </a>`; }).join("");
 
@@ -265,6 +266,7 @@ function renderPulse(){
       <div><b>${fmt(st.votes)}</b><span>votos emitidos</span></div>
       <div><b>${fmt(polls.length)}</b><span>encuestas</span></div>
       <div><b>${fmt(st.args)}</b><span>argumentos publicados</span></div>
+      <div><b>${fmt(st.comments)}</b><span>mensajes de debate</span></div>
       <div><b>${avgT===null?"—":Math.round(avgT*100)}</b><span>tensión media · ${tensionLabel(avgT).toLowerCase()}</span></div>
     </div>
     <div class="two-col">
@@ -284,16 +286,16 @@ async function loadDetail(pid){
   try {
     const d = await api("GET", `/api/polls/${encodeURIComponent(pid)}`);
     mergePoll(d.poll);
-    S.detail = {id:pid, args:d.args, canManage:d.canManage};
+    S.detail = {id:pid, args:d.args, comments:d.comments||[], canManage:d.canManage};
   } catch(e){
-    if (e.status===404){ S.polls.delete(pid); S.detail={id:pid, args:[], canManage:false, missing:true}; }
+    if (e.status===404){ S.polls.delete(pid); S.detail={id:pid, args:[], comments:[], canManage:false, missing:true}; }
   }
   if (route()==="p-"+pid) render(true);
 }
 function renderDetail(pid, force){
   const v = $("#view");
   const p = getPoll(pid);
-  if (S.detail.id!==pid){ S.detail={id:pid, args:[], canManage:false, loading:true}; loadDetail(pid); }
+  if (S.detail.id!==pid){ S.detail={id:pid, args:[], comments:[], canManage:false, loading:true}; S.debate={text:"", replyTo:null, replyText:""}; loadDetail(pid); }
   if (!p){
     S.builtFor=null;
     v.innerHTML = `<a class="back" href="#encuestas">← Todas las encuestas</a><div class="empty">${S.detail.missing||(S.loaded&&!S.detail.loading)?"Esta encuesta no existe o fue eliminada.":"Cargando encuesta…"}</div>`;
@@ -319,6 +321,7 @@ function renderDetail(pid, force){
         <section class="panel" id="vote-panel"></section>
         <section class="panel" id="res-panel"></section>
         <section class="panel cmp-panel" id="cmp-panel"></section>
+        <section class="panel debate" id="debate-panel"></section>
         <section class="panel args" id="args-panel"></section>
         <div class="q-head row" id="admin"></div>
       </div>`;
@@ -326,7 +329,8 @@ function renderDetail(pid, force){
     wireShare(p);
     renderVote(p); renderAdmin(p);
   }
-  renderResults(p); renderCompare(p); renderArgs(p);
+  renderResults(p); renderCompare(p); renderArgs(p); renderDebate(p);
+  if (S.scrollTo==="debate" && !S.detail.loading){ S.scrollTo=null; const d=$("#debate-panel"); if (d) d.scrollIntoView({behavior:"smooth", block:"start"}); }
 }
 
 function wireShare(p){
@@ -498,6 +502,92 @@ function renderArgs(p){
   }));
 }
 
+/* ---------- Debate (mensajes de hasta 200 caracteres) ---------- */
+const DEBATE_MAX = 200;
+const charLen = s => [...s].length;
+function composer(id, value, placeholder, btn){
+  const n = charLen(value);
+  return `<div class="composer">
+    <textarea id="${id}" maxlength="${DEBATE_MAX}" rows="2" placeholder="${esc(placeholder)}">${esc(value)}</textarea>
+    <div class="composer-foot"><span class="count${n>DEBATE_MAX-20?" warn":""}${n>DEBATE_MAX?" over":""}" data-count="${id}">${n}/${DEBATE_MAX}</span>
+      <button class="btn" data-send="${id}" ${n<2||n>DEBATE_MAX?"disabled":""}>${btn}</button></div>
+  </div>`;
+}
+function renderDebate(p){
+  const box=$("#debate-panel"); if (!box) return;
+  const list = S.detail.id===p.id ? (S.detail.comments||[]) : [];
+  const D = S.debate;
+  const focusId = document.activeElement && document.activeElement.tagName==="TEXTAREA" ? document.activeElement.id : null;
+  const caret = focusId ? document.activeElement.selectionStart : 0;
+  const total = list.reduce((s,c)=>s+1+c.replies.length,0);
+  const msg = (c, isReply) => `<div class="msg${isReply?" reply":""}${c.mine?" own":""}">
+      <div class="msg-h"><b>${esc(c.author)}</b>${c.mine?'<span class="you">tú</span>':""}${c.stance!==null&&c.stance!==undefined?`<span class="stance">${esc(stanceLabel(p,c.stance))}</span>`:'<span class="nostance">sin votar</span>'}<span class="when">${ago(c.createdAt)}</span></div>
+      <p>${esc(c.text)}</p>
+      <div class="msg-a">${isReply?"":`<button class="linkbtn" data-reply="${esc(c.id)}">${D.replyTo===c.id?"Cancelar":"Responder"}</button>`}${c.mine||S.detail.canManage?`<button class="linkbtn" data-cdel="${esc(c.id)}">Eliminar</button>`:""}</div>
+    </div>`;
+  box.innerHTML = `<h4>Debate · ${total} ${total===1?"mensaje":"mensajes"}</h4>
+    <p class="note" style="margin:-8px 0 14px">Debate abierto, en vivo. Máximo ${DEBATE_MAX} caracteres por mensaje: di lo esencial.${p.myVote===null||p.myVote===undefined?" Si votas, tu posición aparecerá junto a tu mensaje.":""}</p>
+    ${composer("deb-new", D.text, "¿Qué opinas? Responde a la pregunta o a otra postura…", "Enviar")}
+    <div class="err" id="deb-err"></div>
+    <div class="thread">${list.length ? list.map(c=>`<div class="msg-group">${msg(c,false)}
+        ${c.replies.map(r=>msg(r,true)).join("")}
+        ${D.replyTo===c.id?`<div class="reply-box">${composer("deb-reply", D.replyText, `Responder a ${c.author}…`, "Responder")}</div>`:""}
+      </div>`).join("") : `<div class="note">Aún no hay mensajes. Abre el debate.</div>`}</div>`;
+
+  box.querySelectorAll("textarea").forEach(ta=>ta.addEventListener("input", ()=>{
+    if (ta.id==="deb-new") D.text=ta.value; else D.replyText=ta.value;
+    const n=charLen(ta.value), c=box.querySelector(`[data-count="${ta.id}"]`), b=box.querySelector(`[data-send="${ta.id}"]`);
+    c.textContent=`${n}/${DEBATE_MAX}`; c.classList.toggle("warn", n>DEBATE_MAX-20); c.classList.toggle("over", n>DEBATE_MAX);
+    b.disabled = n<2 || n>DEBATE_MAX;
+  }));
+  box.querySelectorAll("textarea").forEach(ta=>ta.addEventListener("keydown", e=>{
+    if (e.key==="Enter" && (e.ctrlKey||e.metaKey)){ e.preventDefault(); const b=box.querySelector(`[data-send="${ta.id}"]`); if (!b.disabled) b.click(); }
+  }));
+  box.querySelectorAll("[data-send]").forEach(b=>b.addEventListener("click", async ()=>{
+    const isReply = b.dataset.send==="deb-reply";
+    const text = (isReply?D.replyText:D.text).trim();
+    b.disabled=true; $("#deb-err").textContent="";
+    try {
+      const d = await api("POST", `/api/polls/${encodeURIComponent(p.id)}/comments`, {text, parentId: isReply?D.replyTo:null});
+      S.detail.comments=d.comments;
+      if (isReply){ D.replyText=""; D.replyTo=null; } else D.text="";
+      renderDebate(getPoll(p.id)); toast(isReply?"Respuesta enviada":"Mensaje enviado");
+    } catch(e){ b.disabled=false; $("#deb-err").textContent=e.message; }
+  }));
+  box.querySelectorAll("[data-reply]").forEach(b=>b.addEventListener("click", ()=>{
+    D.replyTo = D.replyTo===b.dataset.reply ? null : b.dataset.reply; D.replyText="";
+    renderDebate(getPoll(p.id)); const t=$("#deb-reply"); if (t) t.focus();
+  }));
+  box.querySelectorAll("[data-cdel]").forEach(b=>b.addEventListener("click", async ()=>{
+    if (b.dataset.armed!=="1"){ b.dataset.armed="1"; b.textContent="¿Seguro?"; return; }
+    try { const d=await api("DELETE", `/api/comments/${encodeURIComponent(b.dataset.cdel)}`); S.detail.comments=d.comments; renderDebate(getPoll(p.id)); }
+    catch(e){ toast(e.message); }
+  }));
+  if (focusId){ const t=document.getElementById(focusId); if (t){ t.focus(); t.setSelectionRange(caret, caret); } }
+}
+
+/* Pestaña Debates: conversaciones activas */
+function renderDebates(){
+  S.builtFor="debates";
+  const v=$("#view");
+  const polls=[...S.polls.values()];
+  const active = polls.filter(p=>p.commentsCount).sort((a,b)=>b.lastComment-a.lastComment);
+  const quiet = polls.filter(p=>!p.commentsCount).sort((a,b)=>b.agg.n-a.agg.n);
+  const card = p => `<a class="card" href="#p-${esc(p.id)}" data-debate="1">
+      <div class="meta"><span class="tag">${esc(p.category)}</span>${p.closed?'<span class="tag red">Cerrada</span>':""}</div>
+      <h3>${esc(p.title)}</h3>
+      <div class="foot"><span>${p.commentsCount?`${fmt(p.commentsCount)} ${p.commentsCount===1?"mensaje":"mensajes"} · ${ago(p.lastComment)}`:"Sin mensajes todavía"}</span><span>${tensionOf(p)===null?"Tensión —":"Tensión "+Math.round(tensionOf(p)*100)}</span></div>
+    </a>`;
+  v.innerHTML = `
+    <h2 class="sec">Debates</h2>
+    <p class="note" style="margin:-8px 0 20px;font-size:15px">Cada pregunta tiene su propio debate en vivo. Mensajes de máximo ${DEBATE_MAX} caracteres: argumentos breves, directos y al punto.</p>
+    ${!S.loaded ? '<div class="empty">Cargando…</div>' : `
+      ${active.length?`<h4 class="sub-h">Debates activos</h4><div class="grid" style="margin-bottom:28px">${active.map(card).join("")}</div>`:""}
+      ${quiet.length?`<h4 class="sub-h">Abre el debate</h4><div class="grid">${quiet.map(card).join("")}</div>`:""}
+      ${!polls.length?'<div class="empty">Aún no hay encuestas.</div>':""}`}`;
+  v.querySelectorAll("[data-debate]").forEach(a=>a.addEventListener("click", ()=>{ S.scrollTo="debate"; }));
+}
+
 function renderAdmin(p){
   const box=$("#admin"); if (!box) return;
   if (!(p.mine || S.detail.canManage)){ box.innerHTML=""; return; }
@@ -615,6 +705,7 @@ function onData(){
   const r = route();
   if (r==="crear"||r==="manifiesto") return;
   if (r==="pulso") return renderPulse();
+  if (r==="debates") return renderDebates();
   if (r.startsWith("p-")){
     const pid=r.slice(2), p=getPoll(pid);
     if (!p || S.builtFor!=="p-"+pid){ render(true); return; }
@@ -646,6 +737,13 @@ function connect(){
   es.addEventListener("online", e=>{ try { S.online=JSON.parse(e.data).online; } catch(_){} paintStatus(); });
   es.addEventListener("poll", e=>{ try { const p=JSON.parse(e.data); mergePoll(p); refreshStats(); scheduleStats(); onData(); } catch(_){} });
   es.addEventListener("deleted", e=>{ try { const {id}=JSON.parse(e.data); S.polls.delete(id); scheduleStats(); onData(); } catch(_){} });
+  es.addEventListener("comments", async e=>{
+    try {
+      const {pollId}=JSON.parse(e.data);
+      if (S.detail.id===pollId){ const d=await api("GET", `/api/polls/${encodeURIComponent(pollId)}/comments`); S.detail.comments=d.comments; if (route()==="p-"+pollId) renderDebate(getPoll(pollId)); }
+      scheduleStats();
+    } catch(_){}
+  });
   es.addEventListener("args", async e=>{
     try {
       const {pollId}=JSON.parse(e.data);

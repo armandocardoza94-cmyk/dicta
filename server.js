@@ -123,7 +123,7 @@ app.get("/api/polls", (req, res) => {
 app.get("/api/polls/:id", (req, res) => {
   const p = store.getPollView(req.params.id, req.vid);
   if (!p) return send404(res);
-  res.json({ poll: p, args: store.listArgs(req.params.id, req.vid), canManage: canManage(req, store.getPoll(req.params.id)) });
+  res.json({ poll: p, args: store.listArgs(req.params.id, req.vid), comments: store.listComments(req.params.id, req.vid), canManage: canManage(req, store.getPoll(req.params.id)) });
 });
 
 app.post("/api/polls", limit("create", 8, 3600e3), wrap(async (req, res) => {
@@ -230,6 +230,42 @@ app.delete("/api/args/:id", wrap(async (req, res) => {
   await store.deleteArg(a.id);
   broadcast("args", { pollId: a.pollId });
   res.json({ args: store.listArgs(a.pollId, req.vid) });
+}));
+
+/* Debate: conversación abierta por pregunta, mensajes de hasta 200 caracteres con respuestas */
+const DEBATE_MAX = 200;
+app.get("/api/polls/:id/comments", (req, res) => {
+  if (!store.getPoll(req.params.id)) return send404(res);
+  res.json({ comments: store.listComments(req.params.id, req.vid) });
+});
+app.post("/api/polls/:id/comments", limit("comment", 20, 600e3), wrap(async (req, res) => {
+  const p = store.getPoll(req.params.id);
+  if (!p) return send404(res);
+  const raw = typeof (req.body && req.body.text) === "string" ? req.body.text.trim() : "";
+  if (raw.length < 2) return res.status(400).json({ error: "Escribe tu mensaje." });
+  if ([...raw].length > DEBATE_MAX) return res.status(400).json({ error: `Máximo ${DEBATE_MAX} caracteres.` });
+  let parentId = null;
+  if (req.body.parentId) {
+    const parent = store.getComment(String(req.body.parentId));
+    if (!parent || parent.pollId !== p.id) return res.status(400).json({ error: "El mensaje al que respondes ya no existe." });
+    parentId = parent.parentId || parent.id; // un solo nivel de respuestas
+  }
+  const mine = store.getVote(p.id, req.vid);
+  const c = { id: "c" + Date.now().toString(36) + crypto.randomBytes(3).toString("hex"), pollId: p.id, parentId, voterId: req.vid, text: raw, stance: mine ? mine.value : null, createdAt: Date.now() };
+  await store.saveComment(c);
+  broadcast("comments", { pollId: p.id });
+  broadcast("poll", store.getPollView(p.id));
+  res.status(201).json({ comments: store.listComments(p.id, req.vid) });
+}));
+app.delete("/api/comments/:id", wrap(async (req, res) => {
+  const c = store.getComment(req.params.id);
+  if (!c) return res.status(404).json({ error: "Mensaje no encontrado." });
+  const p = store.getPoll(c.pollId);
+  if (!(req.isAdmin || c.voterId === req.vid || (p && p.createdBy === req.vid))) return res.status(403).json({ error: "No puedes eliminar este mensaje." });
+  await store.deleteComment(c.id);
+  broadcast("comments", { pollId: c.pollId });
+  broadcast("poll", store.getPollView(c.pollId));
+  res.json({ comments: store.listComments(c.pollId, req.vid) });
 }));
 
 /* Exportar resultados agregados (sin datos personales) */
