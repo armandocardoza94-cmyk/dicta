@@ -309,7 +309,8 @@ app.get("/p/:id", (req, res) => {
   if (!p) return res.redirect("/");
   res.type("html").send(page(`${p.title} · Contradicta`, `${p.agg.n} votos · tensión ${p.agg.tension == null ? "—" : Math.round(p.agg.tension * 100)}/100. Toma posición en Contradicta.`));
 });
-app.use(express.static(PUBLIC, { index: false, maxAge: PROD ? "1h" : 0 }));
+// Sin caché larga: el navegador revalida con ETag y siempre recibe la última versión tras un despliegue.
+app.use(express.static(PUBLIC, { index: false, maxAge: 0, setHeaders: (res) => res.setHeader("Cache-Control", "no-cache") }));
 app.get("*", (req, res) => res.type("html").send(indexHtml));
 
 /* ---------- Arranque ---------- */
