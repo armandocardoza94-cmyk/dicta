@@ -174,7 +174,7 @@ function paintStatus(){
   if (!S.loaded){ el.className="status warn"; el.textContent="Conectando…"; return; }
   const st=S.stats||{};
   el.className="status"+(S.live?"":" warn");
-  el.innerHTML = `${S.live?"En vivo":"Reconectando…"} · ${fmt(S.polls.size)} encuestas · ${fmt(st.participants)} participantes · ${fmt(st.votes)} votos<span class="live">${S.online?`${S.online} ${S.online===1?"persona":"personas"} conectadas`:""}</span>`;
+  el.innerHTML = `${S.live?"En vivo":"Reconectando…"} · ${fmt(S.polls.size)} encuestas · ${fmt(st.participants)} participantes · ${fmt(st.votes)} votos<span class="live">${S.online?`${S.online} ${S.online===1?"persona conectada":"personas conectadas"}`:""}</span>`;
 }
 function refreshStats(){
   const voters = S.stats ? S.stats.participants : 0;
