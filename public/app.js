@@ -89,7 +89,7 @@ const store = (k, v) => { try { if (v===undefined) return localStorage.getItem(k
 const S = {
   polls:new Map(), loaded:false, failed:false, stats:null, online:0, live:false,
   region: store("region") || null,
-  admin: store("adminToken") || "",
+  meta:{admin:false, turnstile:null},
   filter:{cat:"Todas", q:"", sort:"recientes"},
   draft:{}, builtFor:null, detail:{id:null, args:[], comments:[], canManage:false}, debate:{text:"", replyTo:null, replyText:""}, scrollTo:null
 };
@@ -107,18 +107,78 @@ function ago(ts){
 }
 
 /* ---------- API ---------- */
-async function api(method, url, body){
+async function api(method, url, body, retried){
   const headers = {"Accept":"application/json"};
   if (body!==undefined) headers["Content-Type"]="application/json";
-  if (S.admin) headers["X-Admin-Token"]=S.admin;
   const r = await fetch(url, {method, headers, credentials:"same-origin", body: body===undefined?undefined:JSON.stringify(body)});
   let data=null; try { data = await r.json(); } catch(_){}
+  // El servidor pide verificación anti-bots: mostrar el reto y reintentar una vez con el token.
+  if (r.status===403 && data && data.needHuman && !retried && S.meta.turnstile){
+    const token = await humanCheck();
+    return api(method, url, {...(body||{}), turnstile: token}, true);
+  }
   if (!r.ok){ const e = new Error((data&&data.error)||"No se pudo completar la acción."); e.status=r.status; e.data=data; throw e; }
   return data;
 }
+
+/* ---------- Verificación anti-bots (Cloudflare Turnstile) ---------- */
+let tsLoading=null;
+function loadTurnstile(){
+  if (window.turnstile) return Promise.resolve();
+  if (!tsLoading) tsLoading = new Promise((ok, ko)=>{
+    const s=document.createElement("script");
+    s.src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"; s.async=true;
+    s.onload=()=>ok(); s.onerror=()=>{ tsLoading=null; ko(new Error("No se pudo cargar la verificación. Revisa tu conexión.")); };
+    document.head.appendChild(s);
+  });
+  return tsLoading;
+}
+function humanCheck(){
+  return new Promise(async (resolve, reject)=>{
+    const ov=document.createElement("div");
+    ov.className="modal";
+    ov.innerHTML=`<div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="hc-t"><h3 id="hc-t">Un momento</h3><p class="note">Confirma que eres una persona para continuar. Solo se pide una vez cada 12 horas.</p><div id="ts-box" style="min-height:70px;margin:14px 0"></div><button class="btn ghost" id="hc-x">Cancelar</button></div>`;
+    document.body.appendChild(ov);
+    let wid=null;
+    const close=()=>{ try { if (wid!==null) window.turnstile.remove(wid); } catch(_){} ov.remove(); };
+    $("#hc-x", ov).addEventListener("click", ()=>{ close(); reject(new Error("Verificación cancelada.")); });
+    try {
+      await loadTurnstile();
+      wid = window.turnstile.render($("#ts-box", ov), {
+        sitekey: S.meta.turnstile, language:"es", theme:"dark",
+        callback: t=>{ close(); resolve(t); },
+        "error-callback": ()=>{ close(); reject(new Error("No pudimos verificar que eres una persona. Inténtalo de nuevo.")); },
+      });
+    } catch(e){ close(); reject(e); }
+  });
+}
+
+/* ---------- Reportar contenido ---------- */
+const REASONS = [["ofensivo","Lenguaje ofensivo o insultos"],["odio","Discurso de odio o discriminación"],["spam","Spam o publicidad"],["datos_personales","Datos personales de alguien"],["desinformacion","Desinformación deliberada"],["otro","Otro motivo"]];
+function reportDialog(type, id){
+  return new Promise(resolve=>{
+    const ov=document.createElement("div");
+    ov.className="modal";
+    ov.innerHTML=`<div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="rp-t"><h3 id="rp-t">Reportar ${type==="poll"?"encuesta":type==="arg"?"argumento":"mensaje"}</h3>
+      <p class="note">Si varias personas lo reportan, se oculta automáticamente hasta que alguien de moderación lo revise.</p>
+      <div class="reasons">${REASONS.map(([k,l],i)=>`<label><input type="radio" name="rr" value="${k}"${i===0?" checked":""}> ${l}</label>`).join("")}</div>
+      <div class="err" id="rp-err"></div>
+      <div class="row"><button class="btn" id="rp-ok">Reportar</button><button class="btn ghost" id="rp-x">Cancelar</button></div></div>`;
+    document.body.appendChild(ov);
+    const done = v => { ov.remove(); resolve(v); };
+    $("#rp-x", ov).addEventListener("click", ()=>done(false));
+    ov.addEventListener("click", e=>{ if (e.target===ov) done(false); });
+    $("#rp-ok", ov).addEventListener("click", async e=>{
+      e.target.disabled=true;
+      const reason = ($('input[name="rr"]:checked', ov)||{}).value || "otro";
+      try { const d = await api("POST", "/api/report", {type, id, reason}); toast(d.hidden?"Reportado. El contenido quedó oculto para revisión.":"Gracias. Lo revisaremos."); done(true); }
+      catch(err){ e.target.disabled=false; $("#rp-err", ov).textContent=err.message; }
+    });
+  });
+}
 function mergePoll(p){
   const old = S.polls.get(p.id);
-  if (old && !("myVote" in p)) { p.myVote = old.myVote; p.mine = old.mine; }
+  if (old && !("myVote" in p)) { p.myVote = old.myVote; p.mine = old.mine; p.reported = old.reported; }
   S.polls.set(p.id, p);
 }
 
@@ -147,12 +207,15 @@ function render(force){
   if (r==="manifiesto"){ if (force || S.builtFor!=="manifiesto") renderAbout(); return; }
   if (r==="pulso") return renderPulse();
   if (r==="debates") return renderDebates();
+  if (r==="admin"){ if (force || S.builtFor!=="admin") renderAdminLogin(); return; }
+  if (r==="moderar") return renderModeration();
   if (r.startsWith("p-")) return renderDetail(r.slice(2), force);
   renderList();
 }
 window.addEventListener("hashchange", ()=>{
   const r = route();
-  if (r.startsWith("admin=")){ S.admin = decodeURIComponent(r.slice(6)); store("adminToken", S.admin || null); toast(S.admin?"Modo administración activado":"Modo administración desactivado"); location.hash="encuestas"; return; }
+  // Enlaces viejos del tipo #admin=CONTRASEÑA: no se usan más; se descarta el valor y se limpia el historial.
+  if (r.startsWith("admin=")){ history.replaceState(null, "", "/#admin"); }
   S.builtFor=null; render(true); if (!S.scrollTo) window.scrollTo(0,0);
 });
 
@@ -316,6 +379,8 @@ function renderDetail(pid, force){
             <a class="btn ghost" id="sh-wa" target="_blank" rel="noopener">WhatsApp</a>
             <a class="btn ghost" id="sh-x" target="_blank" rel="noopener">X</a>
             <a class="btn ghost" href="/api/polls/${esc(p.id)}/export.csv" download>Descargar CSV</a>
+            ${p.mine?"":p.reported?'<span class="reported" style="align-self:center">Encuesta reportada</span>':`<button class="btn ghost" data-report="poll:${esc(p.id)}">Reportar</button>`}
+            ${S.meta.admin&&p.hidden?'<span class="mod-badge" style="align-self:center">Encuesta oculta</span>':""}
           </div>
         </div>
         <section class="panel" id="vote-panel"></section>
@@ -327,6 +392,7 @@ function renderDetail(pid, force){
       </div>`;
     S.builtFor="p-"+pid;
     wireShare(p);
+    wireReports($(".share"));
     renderVote(p); renderAdmin(p);
   }
   renderResults(p); renderCompare(p); renderArgs(p); renderDebate(p);
@@ -475,11 +541,11 @@ function renderArgs(p){
   box.innerHTML = `<h4>Argumentos · ${list.length}</h4>
     ${voted ? `<div class="arg-form"><textarea id="arg-text" maxlength="400" placeholder="¿Por qué piensas así? Defiende tu posición (${esc(stanceLabel(p,p.myVote))})."></textarea><button class="btn" id="arg-send">Publicar</button></div><div class="err" id="arg-err"></div>`
       : `<p class="note">Vota para poder publicar un argumento que defienda tu posición.</p>`}
-    ${list.length ? list.map(a=>`<div class="arg">
-        <span class="stance">${esc(stanceLabel(p,a.stance))}</span>
+    ${list.length ? list.map(a=>`<div class="arg${a.hidden?" is-hidden":""}">
+        <span class="stance">${esc(stanceLabel(p,a.stance))}</span>${modBadge(a)}
         <p>${esc(a.text)}</p>
         <div class="row"><span class="when">${ago(a.createdAt)}${a.mine?" · tuyo":""}</span>
-          <span style="display:flex;gap:10px;align-items:center">${a.mine||S.detail.canManage?`<button class="linkbtn" data-del="${esc(a.id)}">Eliminar</button>`:""}
+          <span style="display:flex;gap:10px;align-items:center">${reportBtn("arg", a)}${a.mine||S.detail.canManage?`<button class="linkbtn" data-del="${esc(a.id)}">Eliminar</button>`:""}
           <button class="like${a.liked?" on":""}" data-like="${esc(a.id)}" aria-pressed="${a.liked}">▲ ${a.likes}</button></span></div>
       </div>`).join("") : `<div class="note">Todavía nadie ha argumentado. Sé la primera voz.</div>`}`;
   const ta=$("#arg-text");
@@ -499,6 +565,23 @@ function renderArgs(p){
     if (b.dataset.armed!=="1"){ b.dataset.armed="1"; b.textContent="¿Seguro?"; return; }
     try { const d=await api("DELETE", `/api/args/${encodeURIComponent(b.dataset.del)}`); S.detail.args=d.args; renderArgs(getPoll(p.id)); }
     catch(e){ toast(e.message); }
+  }));
+  wireReports(box);
+}
+
+/* Botón "Reportar" y distintivos de moderación */
+function reportBtn(type, item){
+  if (item.mine || item.hidden && !S.meta.admin) return "";
+  return item.reported ? `<span class="reported">Reportado</span>` : `<button class="linkbtn" data-report="${type}:${esc(item.id)}">Reportar</button>`;
+}
+function modBadge(item){
+  if (!S.meta.admin) return "";
+  return `${item.hidden?'<span class="mod-badge">Oculto</span>':""}${item.reports?`<span class="mod-badge soft">${item.reports} ${item.reports===1?"reporte":"reportes"}</span>`:""}`;
+}
+function wireReports(box){
+  box.querySelectorAll("[data-report]").forEach(b=>b.addEventListener("click", async ()=>{
+    const [type, id] = b.dataset.report.split(":");
+    if (await reportDialog(type, id)){ b.outerHTML = `<span class="reported">Reportado</span>`; if (S.detail.id) loadDetail(S.detail.id); }
   }));
 }
 
@@ -540,10 +623,12 @@ function renderDebate(p){
     : ds.phase==="open"
     ? `<div class="deb-timer open">⏱ Debate abierto · cierra en <b data-countdown="${p.debateEndsAt}">${leftLabel(ds.left)}</b><span class="tbar"><i style="width:${Math.round(ds.left/DEBATE_MS*100)}%"></i></span></div>`
     : `<div class="deb-timer ended">Debate cerrado · duró 24 horas y terminó el ${new Date(p.debateEndsAt).toLocaleString("es",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})}. Puedes leerlo, pero ya no recibe mensajes.</div>`;
-  const msg = (c, isReply) => `<div class="msg${isReply?" reply":""}${c.mine?" own":""}">
-      <div class="msg-h"><b>${esc(c.author)}</b>${c.mine?'<span class="you">tú</span>':""}${c.stance!==null&&c.stance!==undefined?`<span class="stance">${esc(stanceLabel(p,c.stance))}</span>`:'<span class="nostance">sin votar</span>'}<span class="when">${ago(c.createdAt)}</span></div>
+  const msg = (c, isReply) => (c.hidden && !S.meta.admin)
+    ? `<div class="msg${isReply?" reply":""} is-hidden"><p class="note" style="margin:0">Mensaje oculto por reportes de la comunidad, pendiente de revisión.</p></div>`
+    : `<div class="msg${isReply?" reply":""}${c.mine?" own":""}${c.hidden?" is-hidden":""}">
+      <div class="msg-h"><b>${esc(c.author)}</b>${c.mine?'<span class="you">tú</span>':""}${c.stance!==null&&c.stance!==undefined?`<span class="stance">${esc(stanceLabel(p,c.stance))}</span>`:'<span class="nostance">sin votar</span>'}${modBadge(c)}<span class="when">${ago(c.createdAt)}</span></div>
       <p>${esc(c.text)}</p>
-      <div class="msg-a">${isReply||!open?"":`<button class="linkbtn" data-reply="${esc(c.id)}">${D.replyTo===c.id?"Cancelar":"Responder"}</button>`}${c.mine||S.detail.canManage?`<button class="linkbtn" data-cdel="${esc(c.id)}">Eliminar</button>`:""}</div>
+      <div class="msg-a">${isReply||!open||c.hidden?"":`<button class="linkbtn" data-reply="${esc(c.id)}">${D.replyTo===c.id?"Cancelar":"Responder"}</button>`}${reportBtn("comment", c)}${c.mine||S.detail.canManage?`<button class="linkbtn" data-cdel="${esc(c.id)}">Eliminar</button>`:""}</div>
     </div>`;
   box.innerHTML = `<h4>Debate · ${total} ${total===1?"mensaje":"mensajes"}</h4>
     ${banner}
@@ -585,6 +670,7 @@ function renderDebate(p){
     try { const d=await api("DELETE", `/api/comments/${encodeURIComponent(b.dataset.cdel)}`); S.detail.comments=d.comments; renderDebate(getPoll(p.id)); }
     catch(e){ toast(e.message); }
   }));
+  wireReports(box);
   if (focusId){ const t=document.getElementById(focusId); if (t){ t.focus(); t.setSelectionRange(caret, caret); } }
 }
 
@@ -701,6 +787,74 @@ function renderCreate(){
   });
 }
 
+/* ---------- Administración ---------- */
+async function loadMeta(){
+  try { const m = await api("GET", "/api/meta"); S.meta = {admin:!!m.admin, turnstile:m.turnstile||null, reportHideAt:m.reportHideAt}; } catch(_){}
+  paintAdminTab();
+}
+function paintAdminTab(){
+  let a = document.querySelector('#tabs a[data-r="moderar"]');
+  if (S.meta.admin && !a){ a=document.createElement("a"); a.href="#moderar"; a.dataset.r="moderar"; a.textContent="Moderación"; $("#tabs").appendChild(a); }
+  if (!S.meta.admin && a) a.remove();
+  if (a) a.classList.toggle("on", route()==="moderar");
+}
+function renderAdminLogin(){
+  S.builtFor="admin";
+  const v=$("#view");
+  if (S.meta.admin){
+    v.innerHTML = `<h2 class="sec">Administración</h2>
+      <div class="form"><p>Tienes una sesión de administración activa en este navegador (dura 12 horas).</p>
+      <div class="row"><a class="btn" href="#moderar">Ir a moderación</a><button class="btn ghost" id="logout">Cerrar sesión</button></div></div>`;
+    $("#logout").addEventListener("click", async ()=>{ await api("POST","/api/admin/logout"); await loadMeta(); toast("Sesión cerrada"); location.hash="encuestas"; });
+    return;
+  }
+  v.innerHTML = `<h2 class="sec">Administración</h2>
+    <form class="form" id="lf" novalidate style="max-width:460px">
+      <div class="field"><label for="lp">Contraseña de administración</label><input id="lp" type="password" autocomplete="current-password" required></div>
+      <div class="err" id="lerr"></div>
+      <div class="row"><button class="btn" type="submit" id="lsub">Entrar</button></div>
+      <p class="note" style="margin-top:14px">Solo para quien modera Contradicta. Tras 5 intentos fallidos se bloquea el acceso durante 15 minutos.</p>
+    </form>`;
+  $("#lf").addEventListener("submit", async e=>{
+    e.preventDefault();
+    const b=$("#lsub"); b.disabled=true; $("#lerr").textContent="";
+    try { await api("POST","/api/admin/login",{token:$("#lp").value}); $("#lp").value=""; await loadMeta(); await loadAll(); toast("Sesión iniciada"); location.hash="moderar"; }
+    catch(err){ b.disabled=false; $("#lerr").textContent=err.message; }
+  });
+}
+const TYPE_NAME = {comment:"Mensaje de debate", arg:"Argumento", poll:"Encuesta"};
+const REASON_NAME = Object.fromEntries(REASONS.map(([k,l])=>[k,l]));
+async function renderModeration(){
+  S.builtFor="moderar";
+  const v=$("#view");
+  if (!S.meta.admin){ v.innerHTML = `<div class="empty">Necesitas iniciar sesión como administrador.<br><br><a class="btn" href="#admin">Entrar</a></div>`; return; }
+  v.innerHTML = `<h2 class="sec">Moderación</h2><div class="empty">Cargando…</div>`;
+  let items=[];
+  try { items = (await api("GET","/api/admin/moderation")).items; }
+  catch(e){ if (e.status===401){ await loadMeta(); return renderModeration(); } v.innerHTML=`<div class="empty">${esc(e.message)}</div>`; return; }
+  if (route()!=="moderar") return;
+  const hidden = items.filter(i=>i.hidden).length;
+  v.innerHTML = `<h2 class="sec">Moderación</h2>
+    <p class="note" style="margin:-8px 0 18px;font-size:15px">${items.length} ${items.length===1?"elemento":"elementos"} por revisar · ${hidden} ${hidden===1?"oculto":"ocultos"}. El contenido se oculta solo al recibir ${S.meta.reportHideAt||3} reportes de personas distintas.</p>
+    ${items.length ? `<div class="mod-list">${items.map(i=>`<div class="mod-item${i.hidden?" is-hidden":""}">
+        <div class="meta"><span class="tag">${TYPE_NAME[i.type]}</span>${i.hidden?'<span class="mod-badge">Oculto</span>':'<span class="tag">Visible</span>'}<span>${i.reports} ${i.reports===1?"reporte":"reportes"}</span>${i.lastReport?`<span>· ${ago(i.lastReport)}</span>`:""}</div>
+        <p class="mod-text">${esc(i.text)}</p>
+        ${i.type!=="poll"?`<a class="note" href="#p-${esc(i.pollId)}">En: ${esc(i.pollTitle)}</a>`:`<a class="note" href="#p-${esc(i.pollId)}">Abrir encuesta</a>`}
+        ${Object.keys(i.reasons).length?`<div class="stats">${Object.entries(i.reasons).map(([k,n])=>`<span>${esc(REASON_NAME[k]||k)} <b>${n}</b></span>`).join("")}</div>`:""}
+        <div class="row">
+          ${i.hidden?`<button class="btn ghost" data-act="restore" data-t="${i.type}" data-id="${esc(i.id)}">Restaurar</button>`:`<button class="btn ghost" data-act="hide" data-t="${i.type}" data-id="${esc(i.id)}">Ocultar</button>`}
+          ${i.reports&&!i.hidden?`<button class="btn ghost" data-act="dismiss" data-t="${i.type}" data-id="${esc(i.id)}">Descartar reportes</button>`:""}
+          <button class="btn danger" data-act="delete" data-t="${i.type}" data-id="${esc(i.id)}">Eliminar</button>
+        </div></div>`).join("")}</div>`
+      : `<div class="empty">No hay nada pendiente. 🎉</div>`}`;
+  v.querySelectorAll("[data-act]").forEach(b=>b.addEventListener("click", async ()=>{
+    if (b.dataset.act==="delete" && b.dataset.armed!=="1"){ b.dataset.armed="1"; b.textContent="¿Eliminar definitivamente?"; return; }
+    b.disabled=true;
+    try { await api("POST","/api/admin/moderate",{type:b.dataset.t, id:b.dataset.id, action:b.dataset.act}); toast("Hecho"); renderModeration(); loadAll(); }
+    catch(e){ b.disabled=false; toast(e.message); }
+  }));
+}
+
 /* ---------- Manifiesto ---------- */
 function renderAbout(){
   S.builtFor="manifiesto";
@@ -728,7 +882,7 @@ function renderAbout(){
 function onData(){
   paintStatus();
   const r = route();
-  if (r==="crear"||r==="manifiesto") return;
+  if (r==="crear"||r==="manifiesto"||r==="admin"||r==="moderar") return;
   if (r==="pulso") return renderPulse();
   if (r==="debates") return renderDebates();
   if (r.startsWith("p-")){
@@ -799,7 +953,9 @@ setInterval(()=>{
 /* ---------- Arranque ---------- */
 const m = location.pathname.match(/^\/p\/([A-Za-z0-9_-]+)/);
 if (m) history.replaceState(null, "", "/#p-"+m[1]);
+store("adminToken", null);   // limpia la contraseña guardada por versiones anteriores
 paintRegion();
+loadMeta().then(()=>{ if (["admin","moderar"].includes(route())) render(true); });
 render(true);
 loadAll();
 connect();

@@ -28,8 +28,21 @@ Con Postgres: `DATABASE_URL=postgres://... npm start` (las tablas se crean solas
 | Variable | Uso |
 | --- | --- |
 | `DATABASE_URL` | Conexión a Postgres. Sin ella se usa un archivo JSON. |
-| `ADMIN_TOKEN` | Permite cerrar/eliminar cualquier encuesta o argumento. Actívalo en el navegador visitando `/#admin=TU_TOKEN`. |
+| `ADMIN_TOKEN` | Contraseña de administración. Se inicia sesión en `/#admin` (cookie firmada de 12 h; 5 intentos cada 15 min). |
+| `SESSION_SECRET` | Clave para firmar las cookies de sesión y de verificación. Usa un valor largo y aleatorio. |
+| `TURNSTILE_SITEKEY` / `TURNSTILE_SECRET` | Claves de [Cloudflare Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile). Si están, se pide verificación anti-bots al votar, crear, publicar y reportar (una vez cada 12 h). |
+| `REPORT_HIDE_AT` | Reportes de personas distintas para ocultar un contenido automáticamente (por defecto 3). |
+| `SSE_PER_IP` | Conexiones en vivo simultáneas por IP (por defecto 8). |
 | `PORT` | Puerto (Render lo define solo). |
+
+## Seguridad
+
+- Cabeceras: CSP estricta, HSTS, `X-Frame-Options`, `nosniff`, `Permissions-Policy`.
+- Límites por votante **y por IP** (no se esquivan borrando la cookie), incluido un máximo de votantes nuevos por IP y encuesta.
+- Verificación anti-bots con Turnstile (opcional, por variables de entorno).
+- Filtro de insultos, odio y datos personales (`lib/moderation.js`, lista editable).
+- Reportes de la comunidad con ocultado automático y panel de moderación en `/#moderar`.
+- Sincronización entre instancias con `LISTEN/NOTIFY` de Postgres.
 
 ## Despliegue
 

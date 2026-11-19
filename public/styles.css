@@ -283,3 +283,20 @@ input[type=datetime-local]{color-scheme:dark}
 .deb-timer.open b{font-family:var(--mono);color:#ffcf9a}
 .deb-timer.open .tbar{margin-left:auto;width:120px;flex:none}
 .deb-timer.ended{border-color:rgba(255,61,90,.35);background:var(--red-soft);color:#ffc2cc}
+
+/* ===== Seguridad y moderación ===== */
+.modal{position:fixed;inset:0;z-index:60;background:rgba(5,5,10,.72);backdrop-filter:blur(6px);display:grid;place-items:center;padding:16px}
+.modal-box{width:100%;max-width:440px;background:#14131c;border:1px solid var(--line);border-radius:20px;padding:24px;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.modal-box h3{margin:0 0 6px;font-family:var(--display);font-size:22px}
+.reasons{display:flex;flex-direction:column;gap:8px;margin:14px 0 6px}
+.reasons label{display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:12px;cursor:pointer;font-size:14px}
+.reasons label:has(input:checked){border-color:rgba(255,61,90,.6);background:var(--red-soft)}
+.reasons input{accent-color:#ff3d5a}
+.reported{font-size:12px;color:var(--muted);font-style:italic}
+.mod-badge{font-size:11px;font-weight:600;color:#fff;background:#b3263d;border-radius:999px;padding:2px 9px}
+.mod-badge.soft{background:rgba(255,184,107,.18);color:#ffcf9a;border:1px solid rgba(255,184,107,.35)}
+.is-hidden{opacity:.75;border-style:dashed !important}
+.mod-list{display:flex;flex-direction:column;gap:12px}
+.mod-item{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 18px}
+.mod-text{margin:10px 0 6px;font-size:15px;white-space:pre-wrap;word-break:break-word}
+.mod-item .row{margin-top:12px}
