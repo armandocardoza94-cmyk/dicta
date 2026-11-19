@@ -415,7 +415,7 @@ app.post("/api/report", limit("report", 20, 40, 3600e3), requireHuman, wrap(asyn
 
 /* ---------- Administración ---------- */
 const ADMIN_MS = 12 * 3600e3;
-app.post("/api/admin/login", limit("login", 5, 10, 15 * 60e3), (req, res) => {
+app.post("/api/admin/login", limit("login", 5, 5, 15 * 60e3), (req, res) => {
   const token = str(req.body && req.body.token, 200);
   if (!ADMIN_TOKEN) return res.status(503).json({ error: "La administración no está configurada (falta ADMIN_TOKEN)." });
   if (!token || !safeEq(token, ADMIN_TOKEN)) {
