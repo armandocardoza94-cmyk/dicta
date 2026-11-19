@@ -313,6 +313,15 @@ app.get("/p/:id", (req, res) => {
 app.use(express.static(PUBLIC, { index: false, maxAge: 0, setHeaders: (res) => res.setHeader("Cache-Control", "no-cache") }));
 app.get("*", (req, res) => res.type("html").send(indexHtml));
 
+/* ---------- Cambios hechos por otra instancia (p. ej. durante un despliegue) ---------- */
+store.onRemoteChange(({ kind, pid, exists }) => {
+  if (kind === "resync") return broadcast("resync", {});
+  if (!exists || kind === "deleted") return broadcast("deleted", { id: pid });
+  broadcast("poll", store.getPollView(pid));
+  if (kind === "args") broadcast("args", { pollId: pid });
+  if (kind === "comments") broadcast("comments", { pollId: pid });
+});
+
 /* ---------- Arranque ---------- */
 (async () => {
   await store.init();

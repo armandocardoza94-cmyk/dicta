@@ -759,10 +759,11 @@ function connect(){
   if (!window.EventSource) return;
   const es = new EventSource("/api/stream");
   let first = true;
-  es.addEventListener("hello", e=>{ S.live=true; try { S.online=JSON.parse(e.data).online; } catch(_){} if (!first) loadAll(); first=false; paintStatus(); });
+  es.addEventListener("hello", e=>{ S.live=true; try { S.online=JSON.parse(e.data).online; } catch(_){} if (!first){ loadAll(); if (S.detail.id) loadDetail(S.detail.id); } first=false; paintStatus(); });
   es.addEventListener("online", e=>{ try { S.online=JSON.parse(e.data).online; } catch(_){} paintStatus(); });
   es.addEventListener("poll", e=>{ try { const p=JSON.parse(e.data); mergePoll(p); refreshStats(); scheduleStats(); onData(); } catch(_){} });
   es.addEventListener("deleted", e=>{ try { const {id}=JSON.parse(e.data); S.polls.delete(id); scheduleStats(); onData(); } catch(_){} });
+  es.addEventListener("resync", ()=>{ loadAll(); if (S.detail.id) loadDetail(S.detail.id); });
   es.addEventListener("comments", async e=>{
     try {
       const {pollId}=JSON.parse(e.data);
