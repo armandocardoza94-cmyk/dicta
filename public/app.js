@@ -504,7 +504,18 @@ function renderArgs(p){
 
 /* ---------- Debate (mensajes de hasta 200 caracteres) ---------- */
 const DEBATE_MAX = 200;
+const DEBATE_MS = 24*3600e3;
 const charLen = s => [...s].length;
+/* Cada debate dura 24 h desde su primer mensaje. */
+function debateState(p){
+  if (!p.debateEndsAt) return {phase:"new"};
+  const left = p.debateEndsAt - Date.now();
+  return left > 0 ? {phase:"open", left} : {phase:"ended"};
+}
+function leftLabel(ms){
+  const m = Math.max(1, Math.ceil(ms/60000)); const h = Math.floor(m/60);
+  return h ? `${h} h ${m%60} min` : `${m} min`;
+}
 function composer(id, value, placeholder, btn){
   const n = charLen(value);
   return `<div class="composer">
@@ -520,19 +531,29 @@ function renderDebate(p){
   const focusId = document.activeElement && document.activeElement.tagName==="TEXTAREA" ? document.activeElement.id : null;
   const caret = focusId ? document.activeElement.selectionStart : 0;
   const total = list.reduce((s,c)=>s+1+c.replies.length,0);
+  const ds = debateState(p), open = ds.phase!=="ended";
+  if (!open){ D.replyTo=null; }
+  box.dataset.ends = p.debateEndsAt || "";
+  box.dataset.phase = ds.phase;
+  const banner = ds.phase==="new"
+    ? `<div class="deb-timer new">⏱ El debate dura <b>24 horas</b> a partir del primer mensaje.</div>`
+    : ds.phase==="open"
+    ? `<div class="deb-timer open">⏱ Debate abierto · cierra en <b data-countdown="${p.debateEndsAt}">${leftLabel(ds.left)}</b><span class="tbar"><i style="width:${Math.round(ds.left/DEBATE_MS*100)}%"></i></span></div>`
+    : `<div class="deb-timer ended">Debate cerrado · duró 24 horas y terminó el ${new Date(p.debateEndsAt).toLocaleString("es",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})}. Puedes leerlo, pero ya no recibe mensajes.</div>`;
   const msg = (c, isReply) => `<div class="msg${isReply?" reply":""}${c.mine?" own":""}">
       <div class="msg-h"><b>${esc(c.author)}</b>${c.mine?'<span class="you">tú</span>':""}${c.stance!==null&&c.stance!==undefined?`<span class="stance">${esc(stanceLabel(p,c.stance))}</span>`:'<span class="nostance">sin votar</span>'}<span class="when">${ago(c.createdAt)}</span></div>
       <p>${esc(c.text)}</p>
-      <div class="msg-a">${isReply?"":`<button class="linkbtn" data-reply="${esc(c.id)}">${D.replyTo===c.id?"Cancelar":"Responder"}</button>`}${c.mine||S.detail.canManage?`<button class="linkbtn" data-cdel="${esc(c.id)}">Eliminar</button>`:""}</div>
+      <div class="msg-a">${isReply||!open?"":`<button class="linkbtn" data-reply="${esc(c.id)}">${D.replyTo===c.id?"Cancelar":"Responder"}</button>`}${c.mine||S.detail.canManage?`<button class="linkbtn" data-cdel="${esc(c.id)}">Eliminar</button>`:""}</div>
     </div>`;
   box.innerHTML = `<h4>Debate · ${total} ${total===1?"mensaje":"mensajes"}</h4>
-    <p class="note" style="margin:-8px 0 14px">Debate abierto, en vivo. Máximo ${DEBATE_MAX} caracteres por mensaje: di lo esencial.${p.myVote===null||p.myVote===undefined?" Si votas, tu posición aparecerá junto a tu mensaje.":""}</p>
-    ${composer("deb-new", D.text, "¿Qué opinas? Responde a la pregunta o a otra postura…", "Enviar")}
+    ${banner}
+    ${open ? `<p class="note" style="margin:0 0 12px">Máximo ${DEBATE_MAX} caracteres por mensaje: di lo esencial.${p.myVote===null||p.myVote===undefined?" Si votas, tu posición aparecerá junto a tu mensaje.":""}</p>
+    ${composer("deb-new", D.text, "¿Qué opinas? Responde a la pregunta o a otra postura…", "Enviar")}` : ""}
     <div class="err" id="deb-err"></div>
     <div class="thread">${list.length ? list.map(c=>`<div class="msg-group">${msg(c,false)}
         ${c.replies.map(r=>msg(r,true)).join("")}
         ${D.replyTo===c.id?`<div class="reply-box">${composer("deb-reply", D.replyText, `Responder a ${c.author}…`, "Responder")}</div>`:""}
-      </div>`).join("") : `<div class="note">Aún no hay mensajes. Abre el debate.</div>`}</div>`;
+      </div>`).join("") : `<div class="note">${open?"Aún no hay mensajes. Abre el debate: el primer mensaje inicia el reloj de 24 horas.":"Este debate no tuvo mensajes."}</div>`}</div>`;
 
   box.querySelectorAll("textarea").forEach(ta=>ta.addEventListener("input", ()=>{
     if (ta.id==="deb-new") D.text=ta.value; else D.replyText=ta.value;
@@ -550,6 +571,7 @@ function renderDebate(p){
     try {
       const d = await api("POST", `/api/polls/${encodeURIComponent(p.id)}/comments`, {text, parentId: isReply?D.replyTo:null});
       S.detail.comments=d.comments;
+      const cur=getPoll(p.id); if (cur && !cur.debateEndsAt) cur.debateEndsAt = Date.now()+DEBATE_MS;
       if (isReply){ D.replyText=""; D.replyTo=null; } else D.text="";
       renderDebate(getPoll(p.id)); toast(isReply?"Respuesta enviada":"Mensaje enviado");
     } catch(e){ b.disabled=false; $("#deb-err").textContent=e.message; }
@@ -571,19 +593,22 @@ function renderDebates(){
   S.builtFor="debates";
   const v=$("#view");
   const polls=[...S.polls.values()];
-  const active = polls.filter(p=>p.commentsCount).sort((a,b)=>b.lastComment-a.lastComment);
-  const quiet = polls.filter(p=>!p.commentsCount).sort((a,b)=>b.agg.n-a.agg.n);
-  const card = p => `<a class="card" href="#p-${esc(p.id)}" data-debate="1">
-      <div class="meta"><span class="tag">${esc(p.category)}</span>${p.closed?'<span class="tag red">Cerrada</span>':""}</div>
+  const live = polls.filter(p=>debateState(p).phase==="open").sort((a,b)=>a.debateEndsAt-b.debateEndsAt);
+  const quiet = polls.filter(p=>debateState(p).phase==="new").sort((a,b)=>b.agg.n-a.agg.n);
+  const ended = polls.filter(p=>debateState(p).phase==="ended").sort((a,b)=>b.debateEndsAt-a.debateEndsAt);
+  const card = p => { const ds=debateState(p); return `<a class="card" href="#p-${esc(p.id)}" data-debate="1">
+      <div class="meta"><span class="tag">${esc(p.category)}</span>${ds.phase==="open"?`<span class="badge-new">⏱ quedan ${leftLabel(ds.left)}</span>`:ds.phase==="ended"?'<span class="tag red">Debate cerrado</span>':""}</div>
       <h3>${esc(p.title)}</h3>
       <div class="foot"><span>${p.commentsCount?`${fmt(p.commentsCount)} ${p.commentsCount===1?"mensaje":"mensajes"} · ${ago(p.lastComment)}`:"Sin mensajes todavía"}</span><span>${tensionOf(p)===null?"Tensión —":"Tensión "+Math.round(tensionOf(p)*100)}</span></div>
-    </a>`;
+    </a>`; };
+  const active = live;
   v.innerHTML = `
     <h2 class="sec">Debates</h2>
-    <p class="note" style="margin:-8px 0 20px;font-size:15px">Cada pregunta tiene su propio debate en vivo. Mensajes de máximo ${DEBATE_MAX} caracteres: argumentos breves, directos y al punto.</p>
+    <p class="note" style="margin:-8px 0 20px;font-size:15px">Cada pregunta tiene su propio debate en vivo. Mensajes de máximo ${DEBATE_MAX} caracteres, y cada debate dura <b>24 horas</b> desde su primer mensaje.</p>
     ${!S.loaded ? '<div class="empty">Cargando…</div>' : `
-      ${active.length?`<h4 class="sub-h">Debates activos</h4><div class="grid" style="margin-bottom:28px">${active.map(card).join("")}</div>`:""}
-      ${quiet.length?`<h4 class="sub-h">Abre el debate</h4><div class="grid">${quiet.map(card).join("")}</div>`:""}
+      ${active.length?`<h4 class="sub-h">En curso · cierran pronto primero</h4><div class="grid" style="margin-bottom:28px">${active.map(card).join("")}</div>`:""}
+      ${quiet.length?`<h4 class="sub-h">Abre el debate</h4><div class="grid" style="margin-bottom:28px">${quiet.map(card).join("")}</div>`:""}
+      ${ended.length?`<h4 class="sub-h">Cerrados · solo lectura</h4><div class="grid">${ended.map(card).join("")}</div>`:""}
       ${!polls.length?'<div class="empty">Aún no hay encuestas.</div>':""}`}`;
   v.querySelectorAll("[data-debate]").forEach(a=>a.addEventListener("click", ()=>{ S.scrollTo="debate"; }));
 }
@@ -710,6 +735,7 @@ function onData(){
     const pid=r.slice(2), p=getPoll(pid);
     if (!p || S.builtFor!=="p-"+pid){ render(true); return; }
     renderResults(p); renderCompare(p);
+    const db=$("#debate-panel"); if (db && db.dataset.ends!==String(p.debateEndsAt||"")) renderDebate(p);
     const head = $("#vote-panel h4");
     if (head && ((p.closed && !/cerrada/i.test(head.textContent)) || (!p.closed && /cerrada/i.test(head.textContent)))) render(true);
     return;
@@ -753,6 +779,21 @@ function connect(){
   });
   es.onerror = () => { S.live=false; paintStatus(); };
 }
+
+/* Reloj del debate: actualiza la cuenta regresiva y cierra el debate al llegar a 24 h */
+setInterval(()=>{
+  const r = route();
+  if (r==="debates") return renderDebates();
+  if (!r.startsWith("p-")) return;
+  const p = getPoll(r.slice(2)), box=$("#debate-panel");
+  if (!p || !box) return;
+  if (box.dataset.phase !== debateState(p).phase) return renderDebate(p);
+  document.querySelectorAll("[data-countdown]").forEach(el=>{
+    const left = Number(el.dataset.countdown) - Date.now();
+    el.textContent = leftLabel(left);
+    const bar = el.parentElement.querySelector(".tbar i"); if (bar) bar.style.width = Math.round(Math.max(0,left)/DEBATE_MS*100)+"%";
+  });
+}, 20000);
 
 /* ---------- Arranque ---------- */
 const m = location.pathname.match(/^\/p\/([A-Za-z0-9_-]+)/);

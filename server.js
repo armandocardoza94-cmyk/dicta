@@ -234,6 +234,7 @@ app.delete("/api/args/:id", wrap(async (req, res) => {
 
 /* Debate: conversación abierta por pregunta, mensajes de hasta 200 caracteres con respuestas */
 const DEBATE_MAX = 200;
+const DEBATE_MS = 24 * 3600e3;
 app.get("/api/polls/:id/comments", (req, res) => {
   if (!store.getPoll(req.params.id)) return send404(res);
   res.json({ comments: store.listComments(req.params.id, req.vid) });
@@ -241,6 +242,8 @@ app.get("/api/polls/:id/comments", (req, res) => {
 app.post("/api/polls/:id/comments", limit("comment", 20, 600e3), wrap(async (req, res) => {
   const p = store.getPoll(req.params.id);
   if (!p) return send404(res);
+  // El debate dura 24 h desde su primer mensaje; después queda en solo lectura.
+  if (p.debateStartedAt && Date.now() > p.debateStartedAt + DEBATE_MS) return res.status(403).json({ error: "Este debate ya cerró: duró 24 horas." });
   const raw = typeof (req.body && req.body.text) === "string" ? req.body.text.trim() : "";
   if (raw.length < 2) return res.status(400).json({ error: "Escribe tu mensaje." });
   if ([...raw].length > DEBATE_MAX) return res.status(400).json({ error: `Máximo ${DEBATE_MAX} caracteres.` });
@@ -252,6 +255,7 @@ app.post("/api/polls/:id/comments", limit("comment", 20, 600e3), wrap(async (req
   }
   const mine = store.getVote(p.id, req.vid);
   const c = { id: "c" + Date.now().toString(36) + crypto.randomBytes(3).toString("hex"), pollId: p.id, parentId, voterId: req.vid, text: raw, stance: mine ? mine.value : null, createdAt: Date.now() };
+  if (!p.debateStartedAt) await store.savePoll({ ...p, debateStartedAt: c.createdAt });
   await store.saveComment(c);
   broadcast("comments", { pollId: p.id });
   broadcast("poll", store.getPollView(p.id));
