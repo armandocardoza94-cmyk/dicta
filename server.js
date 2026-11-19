@@ -473,7 +473,11 @@ app.get("/api/polls/:id/export.csv", (req, res) => {
 app.use("/api", (req, res) => res.status(404).json({ error: "Ruta no encontrada." }));
 
 /* ---------- Frontend ---------- */
-const indexHtml = fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8");
+// Huella de versión en las URL de app.js y styles.css: cada despliegue obliga a descargar la versión nueva.
+const fingerprint = (f) => crypto.createHash("sha256").update(fs.readFileSync(path.join(PUBLIC, f))).digest("hex").slice(0, 10);
+const indexHtml = fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8")
+  .replace('src="/app.js"', `src="/app.js?v=${fingerprint("app.js")}"`)
+  .replace('href="/styles.css"', `href="/styles.css?v=${fingerprint("styles.css")}"`);
 const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function page(title, desc) {
   return indexHtml
