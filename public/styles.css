@@ -307,3 +307,6 @@ input[type=datetime-local]{color-scheme:dark}
 .ts-box #ts-loading{color:#555}
 .ts-box::before{content:"↓ Marca la casilla ↓";position:absolute;left:50%;top:-22px;transform:translateX(-50%);font-size:12px;font-weight:600;color:#ffb3c0;white-space:nowrap}
 .modal-box .ts-box{margin-top:30px}
+.lock-msg{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:14px;font-size:13.5px;padding:10px 14px;border-radius:12px;border:1px solid rgba(255,184,107,.4);background:rgba(255,184,107,.08)}
+.lock-msg b[data-lockleft]{font-family:var(--mono);color:#ffcf9a}
+.lock-msg .tbar{margin-left:auto;width:110px;flex:none}

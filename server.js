@@ -31,6 +31,10 @@ const SECRET = process.env.SESSION_SECRET ||
   crypto.createHash("sha256").update("contradicta:" + ADMIN_TOKEN + ":" + (process.env.DATABASE_URL || "")).digest("hex");
 const REPORT_HIDE_AT = Number(process.env.REPORT_HIDE_AT) || 3;   // reportes de personas distintas para ocultar
 const SSE_PER_IP = Number(process.env.SSE_PER_IP) || 8;
+// Tras este plazo desde el primer voto, el voto es definitivo: ya no se puede cambiar ni retirar.
+const VOTE_LOCK_MS = (Number(process.env.VOTE_LOCK_MINUTES) || 3) * 60e3;
+const voteLocked = (v) => !!v && Date.now() > (v.c || v.t) + VOTE_LOCK_MS;
+const LOCKED_MSG = "Tu voto ya es definitivo: el plazo para cambiarlo o retirarlo terminó.";
 
 const app = express();
 app.disable("x-powered-by");
@@ -211,7 +215,7 @@ app.get("/healthz", (req, res) => res.json({ ok: true, driver: store.driver }));
 
 app.get("/api/meta", (req, res) => res.json({
   cats: CATS, types: TYPES, admin: req.isAdmin,
-  turnstile: TURNSTILE_ON ? TURNSTILE_SITEKEY : null, reportHideAt: REPORT_HIDE_AT,
+  turnstile: TURNSTILE_ON ? TURNSTILE_SITEKEY : null, reportHideAt: REPORT_HIDE_AT, voteLockMs: VOTE_LOCK_MS,
 }));
 
 app.get("/api/polls", (req, res) => {
@@ -268,6 +272,7 @@ app.post("/api/polls/:id/vote", limit("vote", 120, 300, 600e3), requireHuman, wr
   if (store.isClosed(p)) return res.status(403).json({ error: "La votación está cerrada." });
   const value = req.body && req.body.value;
   if (!validValue(p, value)) return res.status(400).json({ error: "Respuesta no válida." });
+  if (voteLocked(store.getVote(p.id, req.vid))) return res.status(403).json({ error: LOCKED_MSG, locked: true });
   // Por IP: como mucho 40 votantes distintos por encuesta y hora (hogares, oficinas y escuelas comparten IP).
   if (!store.getVote(p.id, req.vid) && !hit(`newvoter:${p.id}:${req.clientIp}`, 40, 3600e3))
     return res.status(429).json({ error: "Se alcanzó el límite de votos desde tu conexión para esta encuesta. Inténtalo más tarde." });
@@ -282,6 +287,7 @@ app.delete("/api/polls/:id/vote", limit("vote", 120, 300, 600e3), wrap(async (re
   const p = visiblePoll(req, req.params.id);
   if (!p) return send404(res);
   if (store.isClosed(p)) return res.status(403).json({ error: "La votación está cerrada." });
+  if (voteLocked(store.getVote(p.id, req.vid))) return res.status(403).json({ error: LOCKED_MSG, locked: true });
   await store.deleteVote(p.id, req.vid);
   pushPoll(p.id);
   res.json({ poll: store.getPollView(p.id, req.vid, req.isAdmin) });

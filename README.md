@@ -33,6 +33,7 @@ Con Postgres: `DATABASE_URL=postgres://... npm start` (las tablas se crean solas
 | `TURNSTILE_SITEKEY` / `TURNSTILE_SECRET` | Claves de [Cloudflare Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile). Si están, se pide verificación anti-bots al votar, crear, publicar y reportar (una vez cada 12 h). |
 | `REPORT_HIDE_AT` | Reportes de personas distintas para ocultar un contenido automáticamente (por defecto 3). |
 | `SSE_PER_IP` | Conexiones en vivo simultáneas por IP (por defecto 8). |
+| `VOTE_LOCK_MINUTES` | Minutos para corregir o retirar un voto; después queda definitivo (por defecto 3). |
 | `PORT` | Puerto (Render lo define solo). |
 
 ## Seguridad

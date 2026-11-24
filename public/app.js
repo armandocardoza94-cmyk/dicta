@@ -193,7 +193,7 @@ function reportDialog(type, id){
 }
 function mergePoll(p){
   const old = S.polls.get(p.id);
-  if (old && !("myVote" in p)) { p.myVote = old.myVote; p.mine = old.mine; p.reported = old.reported; }
+  if (old && !("myVote" in p)) { p.myVote = old.myVote; p.myVoteAt = old.myVoteAt; p.mine = old.mine; p.reported = old.reported; }
   S.polls.set(p.id, p);
 }
 
@@ -423,11 +423,19 @@ function wireShare(p){
   $("#sh-x").href = "https://x.com/intent/post?text="+encodeURIComponent(text)+"&url="+encodeURIComponent(url);
 }
 
+/* Plazo para corregir el voto: después queda definitivo. */
+const lockMs = () => S.meta.voteLockMs || 3*60e3;
+const lockMinutes = () => Math.round(lockMs()/60e3);
+function lockLeft(p){ return p.myVoteAt ? p.myVoteAt + lockMs() - Date.now() : null; }
+const mmss = ms => { const s=Math.max(0,Math.ceil(ms/1000)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`; };
 function renderVote(p){
   const box = $("#vote-panel"); if (!box) return;
   const current = p.myVote ?? undefined;
-  const d = S.draft[p.id] !== undefined ? S.draft[p.id] : current;
-  const disabled = p.closed;
+  const voted = current!==undefined;
+  const left = voted ? lockLeft(p) : null;
+  const locked = voted && left!==null && left<=0;
+  const d = S.draft[p.id] !== undefined && !locked ? S.draft[p.id] : current;
+  const disabled = p.closed || locked;
   let body="";
   if (p.type==="single" || p.type==="multiple"){
     const sel = new Set(Array.isArray(d)?d:(d!==undefined?[d]:[]));
@@ -441,15 +449,19 @@ function renderVote(p){
       <input type="range" min="0" max="10" step="1" value="${val}" id="rng" aria-label="Tu posición" ${disabled?"disabled":""}>
       <div class="val" id="rngv">${val}</div></div>`;
   }
-  const voted = current!==undefined;
-  box.innerHTML = `<h4>${p.closed?"Votación cerrada":voted?"Tu posición":"Toma posición"}</h4>${body}
+  const editable = voted && !locked && !p.closed;
+  box.dataset.lock = editable ? String(p.myVoteAt + lockMs()) : "";
+  box.innerHTML = `<h4>${p.closed?"Votación cerrada":locked?"Tu voto · definitivo":voted?"Tu posición":"Toma posición"}</h4>${body}
     <div class="row">
-      ${p.closed?"":`<button class="btn" id="cast">${voted?"Actualizar voto":"Votar"}</button>`}
-      ${voted&&!p.closed?`<button class="btn ghost" id="retract">Retirar voto</button>`:""}
+      ${p.closed||locked?"":`<button class="btn" id="cast">${voted?"Actualizar voto":"Votar"}</button>`}
+      ${editable?`<button class="btn ghost" id="retract">Retirar voto</button>`:""}
       <span class="note${voted?" ok":""}" id="vnote">${
-        voted ? "Voto registrado. Puedes cambiarlo cuando quieras." :
+        locked ? "Voto registrado y definitivo." :
+        voted ? "Voto registrado." :
         p.type==="multiple" ? "Puedes marcar varias opciones." : ""}</span>
     </div>
+    ${editable ? `<div class="lock-msg">⏱ Puedes cambiar o retirar tu voto durante <b data-lockleft>${mmss(left)}</b>. Después quedará <b>definitivo</b>.<span class="tbar"><i data-lockbar style="width:${Math.round(left/lockMs()*100)}%"></i></span></div>`
+      : !voted && !p.closed ? `<p class="note" style="margin-top:12px">Al votar tendrás ${lockMinutes()} ${lockMinutes()===1?"minuto":"minutos"} para corregir tu voto; después será definitivo.</p>` : ""}
     ${!p.closed && !S.region ? `<p class="note" style="margin-top:12px">Indica arriba si participas desde México o desde el extranjero para comparar ambas miradas.</p>` : ""}`;
 
   if (p.type==="single"||p.type==="multiple"||p.type==="likert"){
@@ -475,14 +487,15 @@ function renderVote(p){
     try {
       const d = await api("POST", `/api/polls/${encodeURIComponent(p.id)}/vote`, {value:val, region:S.region});
       delete S.draft[p.id]; mergePoll(d.poll); const np=getPoll(p.id);
-      renderVote(np); renderResults(np); renderCompare(np); renderArgs(np); toast(voted?"Voto actualizado":"Voto registrado");
-    } catch(e){ c.disabled=false; $("#vnote").textContent=e.message; $("#vnote").className="note"; }
+      renderVote(np); renderResults(np); renderCompare(np); renderArgs(np);
+      toast(voted?"Voto actualizado":`Voto registrado · tienes ${lockMinutes()} min para corregirlo`);
+    } catch(e){ if (e.data && e.data.locked){ delete S.draft[p.id]; return loadDetail(p.id); } c.disabled=false; $("#vnote").textContent=e.message; $("#vnote").className="note"; }
   });
   const rt=$("#retract");
   if (rt) rt.addEventListener("click", async ()=>{
     rt.disabled=true;
     try { const d = await api("DELETE", `/api/polls/${encodeURIComponent(p.id)}/vote`); delete S.draft[p.id]; mergePoll(d.poll); const np=getPoll(p.id); renderVote(np); renderResults(np); renderCompare(np); renderArgs(np); toast("Voto retirado"); }
-    catch(e){ rt.disabled=false; $("#vnote").textContent=e.message; }
+    catch(e){ if (e.data && e.data.locked){ delete S.draft[p.id]; return loadDetail(p.id); } rt.disabled=false; $("#vnote").textContent=e.message; }
   });
 }
 
@@ -804,7 +817,7 @@ function renderCreate(){
 
 /* ---------- Administración ---------- */
 async function loadMeta(){
-  try { const m = await api("GET", "/api/meta"); S.meta = {admin:!!m.admin, turnstile:m.turnstile||null, reportHideAt:m.reportHideAt}; } catch(_){}
+  try { const m = await api("GET", "/api/meta"); S.meta = {admin:!!m.admin, turnstile:m.turnstile||null, reportHideAt:m.reportHideAt, voteLockMs:m.voteLockMs}; } catch(_){}
   paintAdminTab();
 }
 function paintAdminTab(){
@@ -879,7 +892,7 @@ function renderAbout(){
       <div><h3>Praxis</h3><p>La opinión no es un dato inerte: se forma al confrontarse. Aquí cada pregunta es una tesis puesta a prueba por quienes participan.</p></div>
       <div><h3>Polos</h3><p>Las encuestas de espectro sitúan la opinión entre dos fuerzas opuestas —Estado y mercado, orden y libertad— en lugar de reducirla a sí o no.</p></div>
       <div><h3>Tensión</h3><p>Cada resultado lleva un índice de tensión: 0 cuando hay unanimidad, 100 cuando la sociedad está partida. No buscamos el consenso, lo medimos.</p></div>
-      <div><h3>Movimiento</h3><p>Los votos pueden cambiarse o retirarse. Las posiciones se mueven, y los resultados se actualizan en vivo para todos.</p></div>
+      <div><h3>Compromiso</h3><p>Tras votar tienes ${lockMinutes()} minutos para corregir o retirar tu voto; después queda definitivo. Una posición tomada es una posición sostenida, y los resultados se actualizan en vivo para todos.</p></div>
       <div><h3>Argumento</h3><p>Votar no basta: cada posición puede defenderse con razones, y las mejores suben por el respaldo de los demás.</p></div>
       <div><h3>Dos orillas</h3><p>Millones de mexicanos viven fuera del país. Contradicta compara lo que se piensa en México y en el extranjero.</p></div>
     </div>
@@ -887,7 +900,7 @@ function renderAbout(){
     <div class="cols">${Object.values(TYPES).map(t=>`<div><h3>${t.name}</h3><p>${t.desc}</p></div>`).join("")}</div>
     <h2 class="sec" style="margin-top:36px">Cómo funciona</h2>
     <div class="cols">
-      <div><h3>Un voto por dispositivo</h3><p>No pedimos registro. Una cookie anónima identifica tu dispositivo para que puedas cambiar tu voto sin duplicarlo.</p></div>
+      <div><h3>Un voto por dispositivo</h3><p>No pedimos registro. Una cookie anónima identifica tu dispositivo para que no se duplique tu voto.</p></div>
       <div><h3>Datos abiertos</h3><p>Cada encuesta puede descargarse como CSV con los resultados agregados, sin datos personales.</p></div>
       <div><h3>Sin muestra representativa</h3><p>Los resultados reflejan solo a quienes participan. Son una conversación, no un sondeo científico.</p></div>
     </div>`;
@@ -949,6 +962,15 @@ function connect(){
   });
   es.onerror = () => { S.live=false; paintStatus(); };
 }
+
+/* Reloj del voto: cuenta regresiva del plazo para corregir; al terminar, el voto se muestra como definitivo */
+setInterval(()=>{
+  const box=$("#vote-panel"); if (!box || !box.dataset.lock) return;
+  const left = Number(box.dataset.lock) - Date.now();
+  if (left <= 0){ const r=route(); const p=r.startsWith("p-") && getPoll(r.slice(2)); if (p){ delete S.draft[p.id]; renderVote(p); toast("Tu voto ya es definitivo"); } return; }
+  const t=$("[data-lockleft]", box); if (t) t.textContent = mmss(left);
+  const bar=$("[data-lockbar]", box); if (bar) bar.style.width = Math.round(left/lockMs()*100)+"%";
+}, 1000);
 
 /* Reloj del debate: actualiza la cuenta regresiva y cierra el debate al llegar a 24 h */
 setInterval(()=>{
