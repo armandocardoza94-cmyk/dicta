@@ -142,9 +142,10 @@ function requireHuman(req, res, next) {
   if (!TURNSTILE_ON || req.isAdmin) return next();
   if (checkToken("human", req.vid, req.cookies.hum)) return next();
   const token = req.body && req.body.turnstile;
-  if (!token) return res.status(403).json({ error: "Confirma que eres una persona.", needHuman: true });
+  // La respuesta incluye la clave del sitio: así funciona aunque la página se haya abierto antes de activar Turnstile.
+  if (!token) return res.status(403).json({ error: "Confirma que eres una persona.", needHuman: true, sitekey: TURNSTILE_SITEKEY });
   verifyTurnstile(token, req.clientIp).then((ok) => {
-    if (!ok) return res.status(403).json({ error: "No pudimos verificar que eres una persona. Inténtalo de nuevo.", needHuman: true });
+    if (!ok) return res.status(403).json({ error: "No pudimos verificar que eres una persona. Inténtalo de nuevo.", needHuman: true, sitekey: TURNSTILE_SITEKEY });
     setCookie(res, "hum", makeToken("human", req.vid, HUMAN_MS), HUMAN_MS / 1000);
     next();
   });

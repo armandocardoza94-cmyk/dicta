@@ -300,3 +300,5 @@ input[type=datetime-local]{color-scheme:dark}
 .mod-item{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 18px}
 .mod-text{margin:10px 0 6px;font-size:15px;white-space:pre-wrap;word-break:break-word}
 .mod-item .row{margin-top:12px}
+.ts-box{min-height:70px;margin:14px 0;display:flex;align-items:center;justify-content:center}
+.ts-help{color:#ffcf9a;background:rgba(255,184,107,.08);border:1px solid rgba(255,184,107,.3);border-radius:12px;padding:10px 12px}

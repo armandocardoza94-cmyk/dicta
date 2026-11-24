@@ -113,7 +113,9 @@ async function api(method, url, body, retried){
   const r = await fetch(url, {method, headers, credentials:"same-origin", body: body===undefined?undefined:JSON.stringify(body)});
   let data=null; try { data = await r.json(); } catch(_){}
   // El servidor pide verificación anti-bots: mostrar el reto y reintentar una vez con el token.
-  if (r.status===403 && data && data.needHuman && !retried && S.meta.turnstile){
+  const sitekey = data && (data.sitekey || S.meta.turnstile);
+  if (r.status===403 && data && data.needHuman && !retried && sitekey){
+    S.meta.turnstile = sitekey;   // por si la página se abrió antes de activar la verificación
     const token = await humanCheck();
     return api(method, url, {...(body||{}), turnstile: token}, true);
   }
@@ -137,19 +139,32 @@ function humanCheck(){
   return new Promise(async (resolve, reject)=>{
     const ov=document.createElement("div");
     ov.className="modal";
-    ov.innerHTML=`<div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="hc-t"><h3 id="hc-t">Un momento</h3><p class="note">Confirma que eres una persona para continuar. Solo se pide una vez cada 12 horas.</p><div id="ts-box" style="min-height:70px;margin:14px 0"></div><button class="btn ghost" id="hc-x">Cancelar</button></div>`;
+    ov.innerHTML=`<div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="hc-t"><h3 id="hc-t">Un momento</h3>
+      <p class="note">Confirma que eres una persona para continuar. Solo se pide una vez cada 12 horas.</p>
+      <div id="ts-box" class="ts-box"><span class="note" id="ts-loading">Cargando la verificación de Cloudflare…</span></div>
+      <p class="note ts-help" id="ts-help" hidden></p>
+      <div class="row" style="margin-top:6px"><button class="btn ghost" id="hc-retry" hidden>Reintentar</button><button class="btn ghost" id="hc-x">Cancelar</button></div></div>`;
     document.body.appendChild(ov);
-    let wid=null;
-    const close=()=>{ try { if (wid!==null) window.turnstile.remove(wid); } catch(_){} ov.remove(); };
+    let wid=null, done=false;
+    const help = msg => { const h=$("#ts-help", ov); h.innerHTML=msg; h.hidden=false; $("#hc-retry", ov).hidden=false; };
+    const BLOCKER = "¿No ves la casilla? Algún bloqueador de anuncios o de rastreo puede estar ocultándola: permite <b>challenges.cloudflare.com</b> para este sitio, o prueba en otro navegador.";
+    const close=()=>{ done=true; clearTimeout(slow); try { if (wid!==null) window.turnstile.remove(wid); } catch(_){} ov.remove(); };
+    // Si en 10 s no aparece nada, explicar qué puede estar pasando.
+    const slow = setTimeout(()=>{ if (!done) help(BLOCKER); }, 10000);
     $("#hc-x", ov).addEventListener("click", ()=>{ close(); reject(new Error("Verificación cancelada.")); });
+    $("#hc-retry", ov).addEventListener("click", ()=>{ try { if (wid!==null) window.turnstile.reset(wid); else location.reload(); } catch(_){ location.reload(); } });
     try {
       await loadTurnstile();
+      if (done) return;
+      const ld=$("#ts-loading", ov); if (ld) ld.remove();
       wid = window.turnstile.render($("#ts-box", ov), {
         sitekey: S.meta.turnstile, language:"es", theme:"dark",
         callback: t=>{ close(); resolve(t); },
-        "error-callback": ()=>{ close(); reject(new Error("No pudimos verificar que eres una persona. Inténtalo de nuevo.")); },
+        "error-callback": code=>{ help(`La verificación falló (código ${esc(code||"desconocido")}). Pulsa <b>Reintentar</b>. ${BLOCKER}`); return true; },
+        "expired-callback": ()=>{ try { window.turnstile.reset(wid); } catch(_){} },
+        "unsupported-callback": ()=>help("Tu navegador no es compatible con la verificación de Cloudflare. Prueba con Chrome, Edge, Firefox o Safari actualizados."),
       });
-    } catch(e){ close(); reject(e); }
+    } catch(e){ help(`No se pudo cargar la verificación de Cloudflare. ${BLOCKER}`); }
   });
 }
 
