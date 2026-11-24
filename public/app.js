@@ -140,7 +140,7 @@ function humanCheck(){
     const ov=document.createElement("div");
     ov.className="modal";
     ov.innerHTML=`<div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="hc-t"><h3 id="hc-t">Un momento</h3>
-      <p class="note">Confirma que eres una persona para continuar. Solo se pide una vez cada 12 horas.</p>
+      <p class="note">Confirma que eres una persona para continuar: <b>marca la casilla</b> del recuadro de Cloudflare. Solo se pide una vez cada 12 horas.</p>
       <div id="ts-box" class="ts-box"><span class="note" id="ts-loading">Cargando la verificación de Cloudflare…</span></div>
       <p class="note ts-help" id="ts-help" hidden></p>
       <div class="row" style="margin-top:6px"><button class="btn ghost" id="hc-retry" hidden>Reintentar</button><button class="btn ghost" id="hc-x">Cancelar</button></div></div>`;
@@ -149,8 +149,8 @@ function humanCheck(){
     const help = msg => { const h=$("#ts-help", ov); h.innerHTML=msg; h.hidden=false; $("#hc-retry", ov).hidden=false; };
     const BLOCKER = "¿No ves la casilla? Algún bloqueador de anuncios o de rastreo puede estar ocultándola: permite <b>challenges.cloudflare.com</b> para este sitio, o prueba en otro navegador.";
     const close=()=>{ done=true; clearTimeout(slow); try { if (wid!==null) window.turnstile.remove(wid); } catch(_){} ov.remove(); };
-    // Si en 10 s no aparece nada, explicar qué puede estar pasando.
-    const slow = setTimeout(()=>{ if (!done) help(BLOCKER); }, 10000);
+    // Si en 20 s no se completa, explicar qué puede estar pasando.
+    const slow = setTimeout(()=>{ if (!done) help(BLOCKER); }, 20000);
     $("#hc-x", ov).addEventListener("click", ()=>{ close(); reject(new Error("Verificación cancelada.")); });
     $("#hc-retry", ov).addEventListener("click", ()=>{ try { if (wid!==null) window.turnstile.reset(wid); else location.reload(); } catch(_){ location.reload(); } });
     try {
@@ -158,7 +158,7 @@ function humanCheck(){
       if (done) return;
       const ld=$("#ts-loading", ov); if (ld) ld.remove();
       wid = window.turnstile.render($("#ts-box", ov), {
-        sitekey: S.meta.turnstile, language:"es", theme:"dark",
+        sitekey: S.meta.turnstile, language:"es", theme:"light", size:"flexible",
         callback: t=>{ close(); resolve(t); },
         "error-callback": code=>{ help(`La verificación falló (código ${esc(code||"desconocido")}). Pulsa <b>Reintentar</b>. ${BLOCKER}`); return true; },
         "expired-callback": ()=>{ try { window.turnstile.reset(wid); } catch(_){} },
