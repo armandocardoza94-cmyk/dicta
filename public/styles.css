@@ -305,5 +305,5 @@ input[type=datetime-local]{color-scheme:dark}
 [hidden]{display:none !important}
 .ts-box{background:#fff;border-radius:12px;padding:6px;min-height:78px;position:relative}
 .ts-box #ts-loading{color:#555}
-.ts-box::before{content:"Marca la casilla →";position:absolute;left:50%;top:-22px;transform:translateX(-50%);font-size:12px;font-weight:600;color:#ffb3c0;white-space:nowrap}
+.ts-box::before{content:"↓ Marca la casilla ↓";position:absolute;left:50%;top:-22px;transform:translateX(-50%);font-size:12px;font-weight:600;color:#ffb3c0;white-space:nowrap}
 .modal-box .ts-box{margin-top:30px}
