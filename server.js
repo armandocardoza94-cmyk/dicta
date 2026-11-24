@@ -484,6 +484,7 @@ app.use("/api", (req, res) => res.status(404).json({ error: "Ruta no encontrada.
 const fingerprint = (f) => crypto.createHash("sha256").update(fs.readFileSync(path.join(PUBLIC, f))).digest("hex").slice(0, 10);
 const indexHtml = fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8")
   .replace('src="/app.js"', `src="/app.js?v=${fingerprint("app.js")}"`)
+  .replace('src="/i18n.js"', `src="/i18n.js?v=${fingerprint("i18n.js")}"`)
   .replace('href="/styles.css"', `href="/styles.css?v=${fingerprint("styles.css")}"`);
 const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function page(title, desc) {

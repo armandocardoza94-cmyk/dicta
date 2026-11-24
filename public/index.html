@@ -23,7 +23,7 @@
     <div class="mast-top">
       <div class="brand">
         <span class="eyebrow"><span class="dot"></span>Encuestas en vivo</span>
-        <h1>Contradi<span class="x">cta</span></h1>
+        <h1 translate="no">Contradi<span class="x">cta</span></h1>
         <div class="sub">praxis de la opinión.</div>
       </div>
       <div class="motto">Toda sociedad es una <b>contradicción en movimiento</b>. Contradicta la hace <b>visible</b>.</div>
@@ -41,13 +41,15 @@
         <button data-g="mx">México</button>
         <button data-g="ext">El extranjero</button>
       </div>
+      <label class="lang-pick"><span aria-hidden="true">🌐</span><select id="lang" aria-label="Idioma" translate="no"></select></label>
     </div>
   </div>
 </header>
-<div class="wrap"><div class="status warn" id="status">Conectando…</div></div>
+<div class="wrap"><div class="status warn" id="status">Conectando…</div><div class="i18n-note" id="i18n-note" translate="no" hidden></div></div>
 <main class="wrap" id="view"></main>
 <footer><div class="wrap">Contradicta · praxis de la opinión. Los resultados reflejan solo a quienes participan; no son una muestra representativa. Un voto por dispositivo; puedes corregirlo durante 3 minutos y después es definitivo. · <a href="#admin" style="color:inherit">Administración</a></div></footer>
 <div class="toast" id="toast"></div>
+<script src="/i18n.js" defer></script>
 <script src="/app.js" defer></script>
 </body>
 </html>

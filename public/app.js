@@ -103,7 +103,7 @@ function ago(ts){
   const s=Math.max(1,Math.round((Date.now()-ts)/1000));
   if (s<60) return "hace un momento"; const m=Math.round(s/60); if (m<60) return `hace ${m} min`;
   const h=Math.round(m/60); if (h<24) return `hace ${h} h`; const d=Math.round(h/24); if (d<30) return `hace ${d} d`;
-  return new Date(ts).toLocaleDateString("es",{day:"numeric",month:"short",year:"numeric"});
+  return new Date(ts).toLocaleDateString(I18N.locale(),{day:"numeric",month:"short",year:"numeric"});
 }
 
 /* ---------- API ---------- */
@@ -158,7 +158,7 @@ function humanCheck(){
       if (done) return;
       const ld=$("#ts-loading", ov); if (ld) ld.remove();
       wid = window.turnstile.render($("#ts-box", ov), {
-        sitekey: S.meta.turnstile, language:"es", theme:"light", size:"flexible",
+        sitekey: S.meta.turnstile, language:I18N.turnstileLang(), theme:"light", size:"flexible",
         callback: t=>{ close(); resolve(t); },
         "error-callback": code=>{ help(`La verificación falló (código ${esc(code||"desconocido")}). Pulsa <b>Reintentar</b>. ${BLOCKER}`); return true; },
         "expired-callback": ()=>{ try { window.turnstile.reset(wid); } catch(_){} },
@@ -279,7 +279,7 @@ function renderList(){
     return `
     <a class="card" href="#p-${esc(p.id)}">
       <div class="meta"><span class="tag">${esc(p.category)}</span><span>${esc(TYPES[p.type]?.name||"")}</span>${p.closed?'<span class="tag red">Cerrada</span>':""}${fresh&&!p.closed?'<span class="badge-new">Nueva</span>':""}${p.myVote!==null&&p.myVote!==undefined?"<span>· votaste</span>":""}</div>
-      <h3>${esc(p.title)}</h3>
+      <h3 translate="no">${esc(p.title)}</h3>
       <div class="foot"><span>${fmt(t.n)} ${t.n===1?"voto":"votos"}${t.last24?` <span class="hot">· +${t.last24} hoy</span>`:""}${p.argsCount?` <span class="args-n">· ${p.argsCount} arg.</span>`:""}${p.commentsCount?` <span class="args-n">· ${p.commentsCount} msj.</span>`:""}</span>
         <span style="display:flex;align-items:center">${tn===null?"Tensión —":"Tensión "+Math.round(tn*100)}<span class="tbar"><i style="width:${Math.round((tn||0)*100)}%"></i></span></span></div>
     </a>`; }).join("");
@@ -301,7 +301,7 @@ function renderList(){
     <div class="sugg">
       <div class="sugg-h"><span>Preguntas frecuentes · ${esc(f.cat==="Todas"?"todas las categorías":f.cat)}</span><small>Toca una para votarla o crearla</small></div>
       <div class="sugg-list">${sugFor(f.cat).map((x,i)=>{ const ex=[...S.polls.values()].find(p=>p.title.trim().toLowerCase()===x[0].toLowerCase());
-        return `<button class="sugg-item" data-s="${i}"><span class="sugg-t">${esc(TYPES[x[1]].name)}</span>${esc(x[0])}<span class="sugg-go">${ex?"Votar →":"Crear +"}</span></button>`; }).join("")}</div>
+        return `<button class="sugg-item" data-s="${i}"><span class="sugg-t">${esc(TYPES[x[1]].name)}</span><span translate="no">${esc(x[0])}</span><span class="sugg-go">${ex?"Votar →":"Crear +"}</span></button>`; }).join("")}</div>
     </div>
     ${!S.loaded ? `<div class="empty">${S.failed?"No se pudo conectar. Reintentando…":"Cargando encuestas…"}</div>`
       : cards ? `<div class="grid">${cards}</div>`
@@ -330,7 +330,7 @@ function renderPulse(){
   const st=S.stats||{};
   const withT = polls.filter(p=>tensionOf(p)!==null);
   const avgT = withT.length ? withT.reduce((s,p)=>s+tensionOf(p),0)/withT.length : null;
-  const rank = (arr, val) => arr.length ? `<div class="rank">${arr.map((p,i)=>`<a href="#p-${esc(p.id)}"><i>${i+1}</i><span>${esc(p.title)}</span><b>${val(p)}</b></a>`).join("")}</div>` : `<div class="empty">Aún no hay datos.</div>`;
+  const rank = (arr, val) => arr.length ? `<div class="rank">${arr.map((p,i)=>`<a href="#p-${esc(p.id)}"><i>${i+1}</i><span translate="no">${esc(p.title)}</span><b>${val(p)}</b></a>`).join("")}</div>` : `<div class="empty">Aún no hay datos.</div>`;
   const tense = [...withT].sort((a,b)=>tensionOf(b)-tensionOf(a)).slice(0,5);
   const consensus = [...withT].sort((a,b)=>tensionOf(a)-tensionOf(b)).slice(0,5);
   const voted = [...polls].filter(p=>p.agg.n).sort((a,b)=>b.agg.n-a.agg.n).slice(0,5);
@@ -380,14 +380,14 @@ function renderDetail(pid, force){
     return;
   }
   if (force || S.builtFor!=="p-"+pid){
-    const closes = p.closesAt && !p.closed ? `<span>· cierra ${new Date(p.closesAt).toLocaleString("es",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</span>` : "";
+    const closes = p.closesAt && !p.closed ? `<span>· cierra ${new Date(p.closesAt).toLocaleString(I18N.locale(),{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</span>` : "";
     v.innerHTML = `
       <a class="back" href="#encuestas">← Todas las encuestas</a>
       <div class="detail">
         <div class="q-head">
-          <div class="meta"><span class="tag">${esc(p.category)}</span><span>${esc(TYPES[p.type]?.name||"")}</span>${p.closed?'<span class="tag red">Cerrada</span>':""}<span>${p.createdAt?new Date(p.createdAt).toLocaleDateString("es",{day:"numeric",month:"long",year:"numeric"}):""}</span>${closes}</div>
-          <h2>${esc(p.title)}</h2>
-          ${p.description?`<p>${esc(p.description)}</p>`:""}
+          <div class="meta"><span class="tag">${esc(p.category)}</span><span>${esc(TYPES[p.type]?.name||"")}</span>${p.closed?'<span class="tag red">Cerrada</span>':""}<span>${p.createdAt?new Date(p.createdAt).toLocaleDateString(I18N.locale(),{day:"numeric",month:"long",year:"numeric"}):""}</span>${closes}</div>
+          <h2 translate="no">${esc(p.title)}</h2>
+          ${p.description?`<p translate="no">${esc(p.description)}</p>`:""}
           <div class="share" style="margin-top:16px">
             <button class="btn ghost" id="sh-copy">Copiar enlace</button>
             ${navigator.share?'<button class="btn ghost" id="sh-native">Compartir…</button>':""}
@@ -439,18 +439,19 @@ function renderVote(p){
   let body="";
   if (p.type==="single" || p.type==="multiple"){
     const sel = new Set(Array.isArray(d)?d:(d!==undefined?[d]:[]));
-    body = p.options.map((o,i)=>`<button class="opt${p.type==="single"?" round":""}${sel.has(i)?" sel":""}" data-i="${i}" ${disabled?"disabled":""}><span class="box"></span><span>${esc(o)}</span></button>`).join("");
+    body = p.options.map((o,i)=>`<button class="opt${p.type==="single"?" round":""}${sel.has(i)?" sel":""}" data-i="${i}" ${disabled?"disabled":""}><span class="box"></span><span translate="no">${esc(o)}</span></button>`).join("");
   } else if (p.type==="likert"){
     body = `<div class="likert">${LIKERT.map((l,i)=>`<button class="opt${d===i+1?" sel":""}" data-i="${i+1}" ${disabled?"disabled":""}><b>${i+1}</b>${esc(l)}</button>`).join("")}</div>`;
   } else {
     const val = d!==undefined ? d : 5;
     body = `<div class="spectrum">
-      <div class="poles"><span>← ${esc(p.left||"Tesis")}</span><span>${esc(p.right||"Antítesis")} →</span></div>
+      <div class="poles" translate="no"><span>← ${esc(p.left||"Tesis")}</span><span>${esc(p.right||"Antítesis")} →</span></div>
       <input type="range" min="0" max="10" step="1" value="${val}" id="rng" aria-label="Tu posición" ${disabled?"disabled":""}>
       <div class="val" id="rngv">${val}</div></div>`;
   }
   const editable = voted && !locked && !p.closed;
   box.dataset.lock = editable ? String(p.myVoteAt + lockMs()) : "";
+  box.dataset.closed = String(!!p.closed);
   box.innerHTML = `<h4>${p.closed?"Votación cerrada":locked?"Tu voto · definitivo":voted?"Tu posición":"Toma posición"}</h4>${body}
     <div class="row">
       ${p.closed||locked?"":`<button class="btn" id="cast">${voted?"Actualizar voto":"Votar"}</button>`}
@@ -509,7 +510,7 @@ function renderResults(p){
     const mineSet = new Set(Array.isArray(mine)?mine:(mine!==null&&mine!==undefined?[mine]:[]));
     const max = Math.max(...t.counts);
     body = p.options.map((o,i)=>{ const pct = t.n? t.counts[i]/t.n*100 : 0;
-      return `<div class="res-row${mineSet.has(i)?" mine":""}${t.counts[i]===max&&max>0?" lead":""}"><div class="lbl"><span>${esc(o)}</span><span>${Math.round(pct)}% · ${fmt(t.counts[i])}</span></div><div class="res-bar"><i style="width:${pct}%"></i></div></div>`; }).join("");
+      return `<div class="res-row${mineSet.has(i)?" mine":""}${t.counts[i]===max&&max>0?" lead":""}"><div class="lbl"><span translate="no">${esc(o)}</span><span>${Math.round(pct)}% · ${fmt(t.counts[i])}</span></div><div class="res-bar"><i style="width:${pct}%"></i></div></div>`; }).join("");
     if (p.type==="multiple") body += `<div class="note">Porcentajes sobre ${fmt(t.n)} participantes; pueden sumar más de 100%.</div>`;
   } else if (p.type==="likert"){
     body = LIKERT.map((l,i)=>{ const pct=t.counts[i]/t.n*100;
@@ -517,7 +518,7 @@ function renderResults(p){
   } else {
     const max = Math.max(...t.counts,1);
     const meanPos = t.mean/10;
-    body = `<div class="poles" style="display:flex;justify-content:space-between;font-weight:700;font-size:13px;margin-bottom:22px"><span>← ${esc(p.left||"Tesis")}</span><span>${esc(p.right||"Antítesis")} →</span></div>
+    body = `<div class="poles" translate="no" style="display:flex;justify-content:space-between;font-weight:700;font-size:13px;margin-bottom:22px"><span>← ${esc(p.left||"Tesis")}</span><span>${esc(p.right||"Antítesis")} →</span></div>
       <div class="hist">${t.counts.map((c,i)=>`<div class="${mine===i?"mine":""}" style="height:${c/max*100}%" title="${i}: ${c}"></div>`).join("")}
         <span class="mean" style="left:calc(${(meanPos*(10/11)+ (0.5/11))*100}% - 1px)"></span></div>
       <div class="hist-x">${t.counts.map((c,i)=>`<span>${i}</span>`).join("")}</div>`;
@@ -552,7 +553,7 @@ function renderCompare(p){
     const labels = p.options;
     body = `<div class="mini-lg"><span><i class="sw st"></i>México · ${fmt(N.mx)}</span><span><i class="sw off"></i>El extranjero · ${fmt(N.ext)}</span></div>` +
       labels.map((l,i)=>{ const a=N.mx?t.byRegion.mx[i]/N.mx*100:0, b=N.ext?t.byRegion.ext[i]/N.ext*100:0; const d=a-b;
-        return `<div class="cmp-row"><div class="lbl"><span>${esc(l)}</span><em class="${d>0?"up":"down"}">${N.mx&&N.ext?(d>0?"+":"")+Math.round(d)+" pts":""}</em></div>
+        return `<div class="cmp-row"><div class="lbl"><span translate="no">${esc(l)}</span><em class="${d>0?"up":"down"}">${N.mx&&N.ext?(d>0?"+":"")+Math.round(d)+" pts":""}</em></div>
           <div class="pair"><i class="st" style="width:${a*.85}%"></i><b>${Math.round(a)}%</b></div>
           <div class="pair"><i class="off" style="width:${b*.85}%"></i><b>${Math.round(b)}%</b></div></div>`; }).join("");
   }
@@ -570,8 +571,8 @@ function renderArgs(p){
     ${voted ? `<div class="arg-form"><textarea id="arg-text" maxlength="400" placeholder="¿Por qué piensas así? Defiende tu posición (${esc(stanceLabel(p,p.myVote))})."></textarea><button class="btn" id="arg-send">Publicar</button></div><div class="err" id="arg-err"></div>`
       : `<p class="note">Vota para poder publicar un argumento que defienda tu posición.</p>`}
     ${list.length ? list.map(a=>`<div class="arg${a.hidden?" is-hidden":""}">
-        <span class="stance">${esc(stanceLabel(p,a.stance))}</span>${modBadge(a)}
-        <p>${esc(a.text)}</p>
+        <span class="stance" translate="no">${esc(stanceLabel(p,a.stance))}</span>${modBadge(a)}
+        <p translate="no">${esc(a.text)}</p>
         <div class="row"><span class="when">${ago(a.createdAt)}${a.mine?" · tuyo":""}</span>
           <span style="display:flex;gap:10px;align-items:center">${reportBtn("arg", a)}${a.mine||S.detail.canManage?`<button class="linkbtn" data-del="${esc(a.id)}">Eliminar</button>`:""}
           <button class="like${a.liked?" on":""}" data-like="${esc(a.id)}" aria-pressed="${a.liked}">▲ ${a.likes}</button></span></div>
@@ -650,12 +651,12 @@ function renderDebate(p){
     ? `<div class="deb-timer new">⏱ El debate dura <b>24 horas</b> a partir del primer mensaje.</div>`
     : ds.phase==="open"
     ? `<div class="deb-timer open">⏱ Debate abierto · cierra en <b data-countdown="${p.debateEndsAt}">${leftLabel(ds.left)}</b><span class="tbar"><i style="width:${Math.round(ds.left/DEBATE_MS*100)}%"></i></span></div>`
-    : `<div class="deb-timer ended">Debate cerrado · duró 24 horas y terminó el ${new Date(p.debateEndsAt).toLocaleString("es",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})}. Puedes leerlo, pero ya no recibe mensajes.</div>`;
+    : `<div class="deb-timer ended">Debate cerrado · duró 24 horas y terminó el ${new Date(p.debateEndsAt).toLocaleString(I18N.locale(),{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})}. Puedes leerlo, pero ya no recibe mensajes.</div>`;
   const msg = (c, isReply) => (c.hidden && !S.meta.admin)
     ? `<div class="msg${isReply?" reply":""} is-hidden"><p class="note" style="margin:0">Mensaje oculto por reportes de la comunidad, pendiente de revisión.</p></div>`
     : `<div class="msg${isReply?" reply":""}${c.mine?" own":""}${c.hidden?" is-hidden":""}">
-      <div class="msg-h"><b>${esc(c.author)}</b>${c.mine?'<span class="you">tú</span>':""}${c.stance!==null&&c.stance!==undefined?`<span class="stance">${esc(stanceLabel(p,c.stance))}</span>`:'<span class="nostance">sin votar</span>'}${modBadge(c)}<span class="when">${ago(c.createdAt)}</span></div>
-      <p>${esc(c.text)}</p>
+      <div class="msg-h"><b>${esc(c.author)}</b>${c.mine?'<span class="you">tú</span>':""}${c.stance!==null&&c.stance!==undefined?`<span class="stance" translate="no">${esc(stanceLabel(p,c.stance))}</span>`:'<span class="nostance">sin votar</span>'}${modBadge(c)}<span class="when">${ago(c.createdAt)}</span></div>
+      <p translate="no">${esc(c.text)}</p>
       <div class="msg-a">${isReply||!open||c.hidden?"":`<button class="linkbtn" data-reply="${esc(c.id)}">${D.replyTo===c.id?"Cancelar":"Responder"}</button>`}${reportBtn("comment", c)}${c.mine||S.detail.canManage?`<button class="linkbtn" data-cdel="${esc(c.id)}">Eliminar</button>`:""}</div>
     </div>`;
   box.innerHTML = `<h4>Debate · ${total} ${total===1?"mensaje":"mensajes"}</h4>
@@ -712,7 +713,7 @@ function renderDebates(){
   const ended = polls.filter(p=>debateState(p).phase==="ended").sort((a,b)=>b.debateEndsAt-a.debateEndsAt);
   const card = p => { const ds=debateState(p); return `<a class="card" href="#p-${esc(p.id)}" data-debate="1">
       <div class="meta"><span class="tag">${esc(p.category)}</span>${ds.phase==="open"?`<span class="badge-new">⏱ quedan ${leftLabel(ds.left)}</span>`:ds.phase==="ended"?'<span class="tag red">Debate cerrado</span>':""}</div>
-      <h3>${esc(p.title)}</h3>
+      <h3 translate="no">${esc(p.title)}</h3>
       <div class="foot"><span>${p.commentsCount?`${fmt(p.commentsCount)} ${p.commentsCount===1?"mensaje":"mensajes"} · ${ago(p.lastComment)}`:"Sin mensajes todavía"}</span><span>${tensionOf(p)===null?"Tensión —":"Tensión "+Math.round(tensionOf(p)*100)}</span></div>
     </a>`; };
   const active = live;
@@ -776,7 +777,7 @@ function renderCreate(){
       <div class="field"><label for="ct">Pregunta</label><input id="ct" maxlength="200" placeholder="¿Debe el Estado garantizar la vivienda como derecho?"></div>
       <div class="field"><label for="cd">Contexto (opcional)</label><textarea id="cd" maxlength="600" placeholder="Datos, antecedentes o matices que ayuden a responder."></textarea></div>
       <div class="two">
-        <div class="field"><label for="cc">Categoría</label><select id="cc">${CATS.map(c=>`<option>${esc(c)}</option>`).join("")}</select></div>
+        <div class="field"><label for="cc">Categoría</label><select id="cc">${CATS.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("")}</select></div>
         <div class="field"><label for="cz">Cierre automático (opcional)</label><input id="cz" type="datetime-local"><small class="hint">Déjalo vacío para mantenerla abierta.</small></div>
       </div>
       <div class="field"><label>Tipo de encuesta</label>
@@ -866,7 +867,7 @@ async function renderModeration(){
     <p class="note" style="margin:-8px 0 18px;font-size:15px">${items.length} ${items.length===1?"elemento":"elementos"} por revisar · ${hidden} ${hidden===1?"oculto":"ocultos"}. El contenido se oculta solo al recibir ${S.meta.reportHideAt||3} reportes de personas distintas.</p>
     ${items.length ? `<div class="mod-list">${items.map(i=>`<div class="mod-item${i.hidden?" is-hidden":""}">
         <div class="meta"><span class="tag">${TYPE_NAME[i.type]}</span>${i.hidden?'<span class="mod-badge">Oculto</span>':'<span class="tag">Visible</span>'}<span>${i.reports} ${i.reports===1?"reporte":"reportes"}</span>${i.lastReport?`<span>· ${ago(i.lastReport)}</span>`:""}</div>
-        <p class="mod-text">${esc(i.text)}</p>
+        <p class="mod-text" translate="no">${esc(i.text)}</p>
         ${i.type!=="poll"?`<a class="note" href="#p-${esc(i.pollId)}">En: ${esc(i.pollTitle)}</a>`:`<a class="note" href="#p-${esc(i.pollId)}">Abrir encuesta</a>`}
         ${Object.keys(i.reasons).length?`<div class="stats">${Object.entries(i.reasons).map(([k,n])=>`<span>${esc(REASON_NAME[k]||k)} <b>${n}</b></span>`).join("")}</div>`:""}
         <div class="row">
@@ -918,8 +919,9 @@ function onData(){
     if (!p || S.builtFor!=="p-"+pid){ render(true); return; }
     renderResults(p); renderCompare(p);
     const db=$("#debate-panel"); if (db && db.dataset.ends!==String(p.debateEndsAt||"")) renderDebate(p);
-    const head = $("#vote-panel h4");
-    if (head && ((p.closed && !/cerrada/i.test(head.textContent)) || (!p.closed && /cerrada/i.test(head.textContent)))) render(true);
+    // Si la encuesta se cerró o reabrió, redibujar (se compara un atributo, no el texto, que depende del idioma).
+    const vp = $("#vote-panel");
+    if (vp && vp.dataset.closed !== String(!!p.closed)) render(true);
     return;
   }
   renderList();
@@ -991,6 +993,8 @@ setInterval(()=>{
 const m = location.pathname.match(/^\/p\/([A-Za-z0-9_-]+)/);
 if (m) history.replaceState(null, "", "/#p-"+m[1]);
 store("adminToken", null);   // limpia la contraseña guardada por versiones anteriores
+// Al cambiar de idioma, redibujar para que fechas y textos calculados usen el idioma nuevo.
+window.addEventListener("langchange", ()=>{ if (route()!=="crear") { S.builtFor=null; render(true); } paintStatus(); });
 paintRegion();
 loadMeta().then(()=>{ if (["admin","moderar"].includes(route())) render(true); });
 render(true);

@@ -310,3 +310,10 @@ input[type=datetime-local]{color-scheme:dark}
 .lock-msg{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:14px;font-size:13.5px;padding:10px 14px;border-radius:12px;border:1px solid rgba(255,184,107,.4);background:rgba(255,184,107,.08)}
 .lock-msg b[data-lockleft]{font-family:var(--mono);color:#ffcf9a}
 .lock-msg .tbar{margin-left:auto;width:110px;flex:none}
+
+/* ===== Idioma ===== */
+.lang-pick{display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 12px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:13px}
+.lang-pick select{background:transparent;border:0;outline:none;font-weight:600;padding:6px 6px;cursor:pointer;color:var(--ink)}
+.lang-pick select option{background:#15141d}
+.lang-pick:focus-within{border-color:rgba(255,61,90,.6)}
+.i18n-note{font-size:13px;color:#c9b8ff;background:rgba(124,92,255,.1);border:1px solid rgba(124,92,255,.35);border-radius:12px;padding:10px 14px;margin:4px 0 6px}
