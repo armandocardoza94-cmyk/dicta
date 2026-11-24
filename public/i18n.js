@@ -130,6 +130,8 @@ const EN = {
   "En curso · cierran pronto primero": "Ongoing · closing soonest first", "Abre el debate": "Open the debate",
   "Cerrados · solo lectura": "Closed · read only", "Sin mensajes todavía": "No messages yet",
   "Debate cerrado": "Debate closed", "Cargando…": "Loading…",
+  "Cada pregunta tiene su propio debate en vivo. Mensajes de máximo 200 caracteres, y cada debate dura": "Every question has its own live debate. Messages of up to 200 characters, and each debate lasts",
+  "desde su primer mensaje.": "from its first message.",
 
   // Crear
   "Plantear una pregunta": "Ask a question",
@@ -319,7 +321,8 @@ function doText(node) {
   lastText.set(node, t);
 }
 function doAttr(el, a) {
-  if (!el.hasAttribute(a) || skip(el)) return;
+  // Los atributos (p. ej. el placeholder de un textarea) sí se traducen; solo se respeta translate="no".
+  if (!el.hasAttribute(a) || el.closest('[translate="no"]')) return;
   let m = origAttr.get(el); if (!m) origAttr.set(el, (m = {}));
   const cur = el.getAttribute(a);
   if (!m[a] || cur !== m[a].last) m[a] = { orig: cur };
