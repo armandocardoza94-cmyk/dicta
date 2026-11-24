@@ -10,8 +10,8 @@
  *   - RULES[idioma] = [[/expresión con números/, reemplazo], ...] para textos con cifras.
  * Lo que no esté traducido se muestra en español.
  *
- * Náhuatl, maya y tseltal: traducción PRELIMINAR y parcial. Debe revisarla gente hablante
- * (por ejemplo con apoyo del INALI o de traductores comunitarios) antes de difundirla.
+ * Náhuatl: traducción PRELIMINAR y parcial. Debe revisarla gente hablante (por ejemplo un
+ * traductor certificado del padrón PANITLI del INALI) antes de difundirla.
  */
 (() => {
 "use strict";
@@ -20,8 +20,6 @@ const LANGS = [
   { code: "es",  name: "Español",            htmlLang: "es-MX", locale: "es-MX" },
   { code: "en",  name: "English",            htmlLang: "en",    locale: "en-US" },
   { code: "nah", name: "Nāhuatlahtōlli",     htmlLang: "nah",   locale: "es-MX", preliminary: "náhuatl" },
-  { code: "yua", name: "Maaya t'aan",        htmlLang: "yua",   locale: "es-MX", preliminary: "maya yucateco" },
-  { code: "tzh", name: "Bats'il k'op",       htmlLang: "tzh",   locale: "es-MX", preliminary: "tseltal" },
 ];
 
 /* ---------------------------------------------------------------- Inglés ---- */
@@ -270,19 +268,8 @@ const NAH = {
   "¿Qué opinas? Responde a la pregunta o a otra postura…": "¿Tlen ticnemilia?…",
   "Gracias. Lo revisaremos.": "Tlazohcamati.",
 };
-const YUA = {
-  "Encuestas": "K'áatchi'ob", "México": "Méejiko",
-  "Toma posición": "A'al ba'ax ka tuukulik", "Tu posición": "A t'aan",
-  "¿Qué opinas? Responde a la pregunta o a otra postura…": "¿Ba'ax ka tuukulik?…",
-  "Gracias. Lo revisaremos.": "Dios bo'otik.",
-};
-const TZH = {
-  "México": "Mejiko", "Tu posición": "Ak'op",
-  "Gracias. Lo revisaremos.": "Wokol awal.",
-};
-
-const DICT = { en: EN, nah: NAH, yua: YUA, tzh: TZH };
-const RULES = { en: EN_RULES, nah: [], yua: [], tzh: [] };
+const DICT = { en: EN, nah: NAH };
+const RULES = { en: EN_RULES, nah: [] };
 
 /* ------------------------------------------------------------- Motor -------- */
 const stored = (() => { try { return localStorage.getItem("lang"); } catch (_) { return null; } })();
