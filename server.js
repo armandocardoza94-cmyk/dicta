@@ -479,6 +479,24 @@ app.get("/api/polls/:id/export.csv", (req, res) => {
 
 app.use("/api", (req, res) => res.status(404).json({ error: "Ruta no encontrada." }));
 
+/* ---------- Códigos QR ---------- */
+// Solo para enlaces del propio sitio (la portada o una encuesta), nunca para direcciones arbitrarias.
+const QRCode = require("qrcode");
+const PUBLIC_URL = (process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+app.get(["/qr.png", "/qr.svg"], limit("qr", 120, 300, 600e3), wrap(async (req, res) => {
+  let p = typeof req.query.path === "string" ? req.query.path : "/";
+  if (!/^\/(p\/[A-Za-z0-9_-]{1,40})?$/.test(p)) p = "/";
+  const url = (PUBLIC_URL || `${req.protocol}://${req.get("host")}`) + p;
+  const opts = { errorCorrectionLevel: "H", margin: 4, color: { dark: "#09090f", light: "#ffffff" } };
+  const name = p === "/" ? "contradicta-qr" : "contradicta-" + p.slice(3) + "-qr";
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  const svg = req.path.endsWith(".svg");
+  if (req.query.download) res.setHeader("Content-Disposition", `attachment; filename="${name}.${svg ? "svg" : "png"}"`);
+  if (svg) return res.type("image/svg+xml").send(await QRCode.toString(url, { ...opts, type: "svg" }));
+  const width = Math.min(2048, Math.max(256, Number(req.query.size) || 1024));
+  res.type("png").send(await QRCode.toBuffer(url, { ...opts, width }));
+}));
+
 /* ---------- Frontend ---------- */
 // Huella de versión en las URL de app.js y styles.css: cada despliegue obliga a descargar la versión nueva.
 const fingerprint = (f) => crypto.createHash("sha256").update(fs.readFileSync(path.join(PUBLIC, f))).digest("hex").slice(0, 10);

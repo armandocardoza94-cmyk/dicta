@@ -34,6 +34,7 @@ Con Postgres: `DATABASE_URL=postgres://... npm start` (las tablas se crean solas
 | `REPORT_HIDE_AT` | Reportes de personas distintas para ocultar un contenido automáticamente (por defecto 3). |
 | `SSE_PER_IP` | Conexiones en vivo simultáneas por IP (por defecto 8). |
 | `VOTE_LOCK_MINUTES` | Minutos para corregir o retirar un voto; después queda definitivo (por defecto 3). |
+| `PUBLIC_URL` | Dirección pública del sitio que llevan los códigos QR (p. ej. `https://contradicta.onrender.com`). |
 | `PORT` | Puerto (Render lo define solo). |
 
 ## Seguridad

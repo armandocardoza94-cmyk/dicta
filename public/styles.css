@@ -317,3 +317,7 @@ input[type=datetime-local]{color-scheme:dark}
 .lang-pick select option{background:#15141d}
 .lang-pick:focus-within{border-color:rgba(255,61,90,.6)}
 .i18n-note{font-size:13px;color:#c9b8ff;background:rgba(124,92,255,.1);border:1px solid rgba(124,92,255,.35);border-radius:12px;padding:10px 14px;margin:4px 0 6px}
+.qr-box{text-align:center}
+.qr-box img{background:#fff;border-radius:14px;padding:8px;margin:10px auto 4px;display:block;max-width:100%;height:auto}
+.qr-box .qr-url{font-family:var(--mono);font-size:12px;word-break:break-all}
+.qr-box .row{justify-content:center}

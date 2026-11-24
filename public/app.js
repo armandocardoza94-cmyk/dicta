@@ -393,6 +393,7 @@ function renderDetail(pid, force){
             ${navigator.share?'<button class="btn ghost" id="sh-native">Compartir…</button>':""}
             <a class="btn ghost" id="sh-wa" target="_blank" rel="noopener">WhatsApp</a>
             <a class="btn ghost" id="sh-x" target="_blank" rel="noopener">X</a>
+            <button class="btn ghost" id="sh-qr">Código QR</button>
             <a class="btn ghost" href="/api/polls/${esc(p.id)}/export.csv" download>Descargar CSV</a>
             ${p.mine?"":p.reported?'<span class="reported" style="align-self:center">Encuesta reportada</span>':`<button class="btn ghost" data-report="poll:${esc(p.id)}">Reportar</button>`}
             ${S.meta.admin&&p.hidden?'<span class="mod-badge" style="align-self:center">Encuesta oculta</span>':""}
@@ -421,7 +422,25 @@ function wireShare(p){
   const n=$("#sh-native"); if (n) n.addEventListener("click", ()=>navigator.share({title:"Contradicta", text, url}).catch(()=>{}));
   $("#sh-wa").href = "https://wa.me/?text="+encodeURIComponent(text+" "+url);
   $("#sh-x").href = "https://x.com/intent/post?text="+encodeURIComponent(text)+"&url="+encodeURIComponent(url);
+  $("#sh-qr").addEventListener("click", ()=>qrDialog(`/p/${p.id}`, "Escanéalo para abrir esta encuesta en el celular."));
 }
+
+/* Código QR (lo genera el servidor, solo para enlaces del propio sitio) */
+function qrDialog(path, hint){
+  const q = "path="+encodeURIComponent(path);
+  const ov=document.createElement("div");
+  ov.className="modal";
+  ov.innerHTML=`<div class="modal-box qr-box" role="dialog" aria-modal="true" aria-labelledby="qr-t"><h3 id="qr-t">Código QR</h3>
+    <p class="note">${esc(hint)}</p>
+    <img src="/qr.svg?${q}" alt="Código QR" width="260" height="260">
+    <p class="note qr-url" translate="no">${esc(location.origin+path)}</p>
+    <div class="row"><a class="btn" href="/qr.png?${q}&download=1" download>Descargar PNG</a><a class="btn ghost" href="/qr.svg?${q}&download=1" download>Descargar SVG</a><button class="btn ghost" id="qr-x">Cerrar</button></div></div>`;
+  document.body.appendChild(ov);
+  const close=()=>ov.remove();
+  $("#qr-x", ov).addEventListener("click", close);
+  ov.addEventListener("click", e=>{ if (e.target===ov) close(); });
+}
+document.addEventListener("click", e=>{ const a=e.target.closest && e.target.closest("[data-site-qr]"); if (a){ e.preventDefault(); qrDialog("/", "Escanéalo para abrir Contradicta en el celular."); } });
 
 /* Plazo para corregir el voto: después queda definitivo. */
 const lockMs = () => S.meta.voteLockMs || 3*60e3;
