@@ -280,7 +280,7 @@ const EN_RULES = [
   [/^Opción (\d+)$/, "Option $1"],
   [/^Versión vigente: (.+)\.$/, "Current version: $1."],
   [/^Listo: se eliminaron (\d+) registros y este dispositivo tiene un identificador nuevo\.$/, "Done: $1 records were deleted and this device has a new identifier."],
-  [/^· hasta el (.+)\. Se ocultan los resultados de las encuestas de política nacional \(LGIPE, art\. 213\)\.$/, "· until $1. Results of national politics polls are hidden (LGIPE, art. 213)."],
+  [/^· hasta el (.+) · Se ocultan los resultados de las encuestas de política nacional \(LGIPE, art\. 213\)\.$/, "· until $1 · Results of national politics polls are hidden (LGIPE, art. 213)."],
   [/^(\d+) elementos? por revisar · (\d+) ocultos?\. El contenido se oculta solo al recibir (\d+) reportes de personas distintas\.$/, "$1 item(s) to review · $2 hidden. Content is hidden automatically after $3 reports from different people."],
   [/^(\d+) reportes?$/, (m, n) => `${n} ${n === "1" ? "report" : "reports"}`],
   [/^· hace (.+)$/, (m, a) => "· " + tr("hace " + a)],

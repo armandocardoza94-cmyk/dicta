@@ -904,7 +904,7 @@ function paintVeda(){
   const v=S.meta.veda||{};
   if (!v.active){ if (el) el.remove(); return; }
   if (!el){ el=document.createElement("div"); el.id="veda-note"; el.className="veda-note"; $("#status").after(el); }
-  el.innerHTML = `<b>Veda electoral en curso</b> · hasta el ${new Date(v.until).toLocaleString(I18N.locale(),{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})}. Se ocultan los resultados de las encuestas de política nacional (LGIPE, art. 213).`;
+  el.innerHTML = `<b>Veda electoral en curso</b> · hasta el ${new Date(v.until).toLocaleString(I18N.locale(),{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})} · Se ocultan los resultados de las encuestas de política nacional (LGIPE, art. 213).`;
 }
 
 /* ---------- Administración ---------- */
