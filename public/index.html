@@ -8,7 +8,14 @@
 <meta property="og:type" content="website">
 <meta property="og:title" content="Contradicta · praxis de la opinión">
 <meta property="og:description" content="Encuestas en vivo con índice de tensión: mide cuán dividida está la opinión, toma posición y defiéndela con argumentos.">
-<meta property="og:image" content="/icon.svg">
+<meta property="og:site_name" content="Contradicta">
+<meta property="og:locale" content="es_MX">
+<meta property="og:image" content="/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Contradicta: símbolo de un arco con degradado rojo a violeta">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="/og.png">
 <meta name="theme-color" content="#09090f">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -18,6 +25,8 @@
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+<a class="skip" href="#encuestas" data-skip>Saltar al contenido</a>
+<noscript><p style="padding:16px;color:#fff;background:#3a0d16">Contradicta necesita JavaScript activado para funcionar.</p></noscript>
 <header class="mast">
   <div class="wrap">
     <div class="mast-top">
@@ -47,7 +56,7 @@
   </div>
 </header>
 <div class="wrap"><div class="status warn" id="status">Conectando…</div><div class="i18n-note" id="i18n-note" translate="no" hidden></div></div>
-<main class="wrap" id="view"></main>
+<main class="wrap" id="view" tabindex="-1"></main>
 <footer><div class="wrap">Contradicta · praxis de la opinión. Los resultados reflejan solo a quienes participan; no son una muestra representativa. Un voto por dispositivo; puedes corregirlo durante 3 minutos y después es definitivo.
   <nav class="foot-links"><a href="#privacidad">Aviso de privacidad</a><a href="#terminos">Términos y condiciones</a><a href="#metodologia">Nota metodológica</a><a href="/qr.png?download=1" data-site-qr>Código QR del sitio</a><a href="#admin">Administración</a></nav></div></footer>
 <div class="toast" id="toast"></div>

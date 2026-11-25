@@ -4,7 +4,7 @@ services:
     name: contradicta
     runtime: node
     plan: free
-    buildCommand: npm install --omit=dev
+    buildCommand: npm install --omit=dev && (npm audit --omit=dev || true)
     startCommand: npm start
     healthCheckPath: /healthz
     envVars:

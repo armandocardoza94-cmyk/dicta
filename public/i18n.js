@@ -195,6 +195,12 @@ const EN = {
   "Ocultar": "Hide", "Restaurar": "Restore", "Descartar reportes": "Dismiss reports", "¿Eliminar definitivamente?": "Delete permanently?",
   "No hay nada pendiente. 🎉": "Nothing pending. 🎉", "Hecho": "Done",
 
+  // Errores y accesibilidad
+  "Página no encontrada": "Page not found", "La sección que buscas no existe o cambió.": "The section you're looking for doesn't exist or has changed.",
+  "Volver al inicio": "Back to home", "Saltar al contenido": "Skip to content", "Tu argumento": "Your argument", "Mensaje de debate": "Debate message",
+  "Solicitud no válida.": "Invalid request.", "El contenido enviado es demasiado grande.": "The submitted content is too large.",
+  "Ocurrió un error. Inténtalo de nuevo.": "Something went wrong. Please try again.", "Origen no permitido.": "Origin not allowed.",
+
   // Cuentas y alertas
   "Entrar": "Sign in", "Mi cuenta": "My account", "Alertas": "Alerts", "Seguir pregunta": "Follow question", "Siguiendo ✓": "Following ✓",
   "Te avisaremos de novedades en esta pregunta": "We'll let you know about updates on this question", "Dejaste de seguir esta pregunta": "You unfollowed this question",

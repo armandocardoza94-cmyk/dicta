@@ -331,6 +331,7 @@ function render(force){
   if (r==="privacidad"||r==="terminos"||r==="metodologia"){ if (force || S.builtFor!==r) renderLegal(r); return; }
   if (["entrar","entrar-vencido","bienvenida","cuenta","alertas"].includes(r)){ if (force || S.builtFor!==r) renderAccount(r); return; }
   if (r.startsWith("p-")) return renderDetail(r.slice(2), force);
+  if (r!=="encuestas") return renderNotFound();
   renderList();
 }
 
@@ -452,6 +453,7 @@ function renderList(){
 /* ---------- Pulso (panel general) ---------- */
 function renderPulse(){
   S.builtFor="pulso";
+  if (!S.loaded){ $("#view").innerHTML = `<h2 class="sec">Pulso de la contradicción</h2><div class="empty">${S.failed?"No se pudo conectar. Reintentando…":"Cargando…"}</div>`; return; }
   const v=$("#view");
   const polls=[...S.polls.values()];
   const st=S.stats||{};
@@ -722,7 +724,7 @@ function renderArgs(p){
   const keep = $("#arg-text") ? $("#arg-text").value : "";
   const hadFocus = document.activeElement && document.activeElement.id==="arg-text";
   box.innerHTML = `<h4>Argumentos · ${list.length}</h4>
-    ${voted ? `<div class="arg-form"><textarea id="arg-text" maxlength="400" placeholder="¿Por qué piensas así? Defiende tu posición (${esc(stanceLabel(p,p.myVote))})."></textarea><button class="btn" id="arg-send">Publicar</button></div><div class="err" id="arg-err"></div>`
+    ${voted ? `<div class="arg-form"><textarea id="arg-text" maxlength="400" aria-label="Tu argumento" placeholder="¿Por qué piensas así? Defiende tu posición (${esc(stanceLabel(p,p.myVote))})."></textarea><button class="btn" id="arg-send">Publicar</button></div><div class="err" id="arg-err"></div>`
       : `<p class="note">Vota para poder publicar un argumento que defienda tu posición.</p>`}
     ${list.length ? list.map(a=>`<div class="arg${a.hidden?" is-hidden":""}">
         <span class="stance" translate="no">${esc(stanceLabel(p,a.stance))}</span>${modBadge(a)}
@@ -785,7 +787,7 @@ function leftLabel(ms){
 function composer(id, value, placeholder, btn){
   const n = charLen(value);
   return `<div class="composer">
-    <textarea id="${id}" maxlength="${DEBATE_MAX}" rows="2" placeholder="${esc(placeholder)}">${esc(value)}</textarea>
+    <textarea id="${id}" maxlength="${DEBATE_MAX}" rows="2" aria-label="Mensaje de debate" placeholder="${esc(placeholder)}">${esc(value)}</textarea>
     <div class="composer-foot"><span class="count${n>DEBATE_MAX-20?" warn":""}${n>DEBATE_MAX?" over":""}" data-count="${id}">${n}/${DEBATE_MAX}</span>
       <button class="btn" data-send="${id}" ${n<2||n>DEBATE_MAX?"disabled":""}>${btn}</button></div>
   </div>`;
@@ -921,7 +923,7 @@ function renderCreate(){
   const draw = () => {
     const optsHtml = st.type==="single"||st.type==="multiple" ? `
       <div class="field"><label>Opciones de respuesta</label>
-        <div id="opts">${st.options.map((o,i)=>`<div class="optline"><input data-o="${i}" value="${esc(o)}" placeholder="Opción ${i+1}" maxlength="140">${st.options.length>2?`<button type="button" data-rm="${i}" aria-label="Quitar">✕</button>`:""}</div>`).join("")}</div>
+        <div id="opts">${st.options.map((o,i)=>`<div class="optline"><input data-o="${i}" value="${esc(o)}" placeholder="Opción ${i+1}" aria-label="Opción ${i+1}" maxlength="140">${st.options.length>2?`<button type="button" data-rm="${i}" aria-label="Quitar">✕</button>`:""}</div>`).join("")}</div>
         ${st.options.length<10?`<button type="button" class="btn ghost" id="addopt" style="margin-top:4px">+ Añadir opción</button>`:""}
       </div>` : st.type==="spectrum" ? `
       <div class="field"><label>Los dos polos de la contradicción</label>
@@ -1227,6 +1229,7 @@ async function renderModeration(){
   const hidden = items.filter(i=>i.hidden).length;
   v.innerHTML = `<h2 class="sec">Moderación</h2>
     <p class="note" style="margin:-8px 0 18px;font-size:15px">${items.length} ${items.length===1?"elemento":"elementos"} por revisar · ${hidden} ${hidden===1?"oculto":"ocultos"}. El contenido se oculta solo al recibir ${S.meta.reportHideAt||3} reportes de personas distintas.</p>
+    <div class="row" style="margin:-6px 0 18px"><a class="btn ghost" href="/api/admin/backup" download>Descargar respaldo de la base de datos</a><span class="note">Archivo JSON con todos los datos, incluidos correos: guárdalo en un lugar seguro.</span></div>
     ${items.length ? `<div class="mod-list">${items.map(i=>`<div class="mod-item${i.hidden?" is-hidden":""}">
         <div class="meta"><span class="tag">${TYPE_NAME[i.type]}</span>${i.hidden?'<span class="mod-badge">Oculto</span>':'<span class="tag">Visible</span>'}<span>${i.reports} ${i.reports===1?"reporte":"reportes"}</span>${i.lastReport?`<span>· ${ago(i.lastReport)}</span>`:""}</div>
         <p class="mod-text" translate="no">${esc(i.text)}</p>
@@ -1351,6 +1354,24 @@ setInterval(()=>{
     const bar = el.parentElement.querySelector(".tbar i"); if (bar) bar.style.width = Math.round(Math.max(0,left)/DEBATE_MS*100)+"%";
   });
 }, 20000);
+
+/* ---------- Página no encontrada (dentro de la app) ---------- */
+function renderNotFound(){
+  S.builtFor="404";
+  $("#view").innerHTML = `<div class="empty notfound"><p class="nf-code">404</p><h2 class="sec">Página no encontrada</h2><p>La sección que buscas no existe o cambió.</p><br><a class="btn" href="#encuestas">Volver al inicio</a></div>`;
+}
+
+/* ---------- Accesibilidad: teclado ---------- */
+// "Saltar al contenido" lleva el foco al área principal sin cambiar de sección.
+document.addEventListener("click", e=>{ const a=e.target.closest && e.target.closest("[data-skip]"); if (a){ e.preventDefault(); $("#view").focus(); } });
+// Escape cierra la ventana emergente abierta (verificación, consentimiento, reporte, QR).
+document.addEventListener("keydown", e=>{
+  if (e.key!=="Escape") return;
+  const modals=document.querySelectorAll(".modal"); const top=modals[modals.length-1];
+  if (top){ const x=top.querySelector('[id$="-x"]'); if (x) x.click(); }
+});
+// Al abrir una ventana emergente, poner el foco en su primer control.
+new MutationObserver(muts=>{ for (const m of muts) for (const n of m.addedNodes) if (n.classList && n.classList.contains("modal")) setTimeout(()=>{ const f=n.querySelector("input,button,a,textarea"); if (f) f.focus(); }, 30); }).observe(document.body, {childList:true});
 
 /* ---------- Arranque ---------- */
 const m = location.pathname.match(/^\/p\/([A-Za-z0-9_-]+)/);

@@ -59,6 +59,14 @@ store.setResultMask((p) => vedaNow().active && (VEDA_CATS.includes(p.category) |
 const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
+// CORS restringido: la API solo acepta escrituras desde el propio sitio (también evita CSRF entre sitios).
+app.use("/api", (req, res, next) => {
+  const origin = req.headers.origin;
+  if (!origin || req.method === "GET" || req.method === "HEAD") return next();
+  const allowed = [process.env.PUBLIC_URL, `${req.protocol}://${req.get("host")}`].filter(Boolean).map((u) => u.replace(/\/+$/, ""));
+  if (allowed.includes(origin)) return next();
+  res.status(403).json({ error: "Origen no permitido." });
+});
 app.use(express.json({ limit: "32kb" }));
 
 /* ---------- Cabeceras de seguridad ---------- */
@@ -641,6 +649,20 @@ app.post("/api/admin/logout", (req, res) => {
 });
 const adminOnly = (req, res, next) => (req.isAdmin ? next() : res.status(401).json({ error: "Inicia sesión como administrador." }));
 app.get("/api/admin/moderation", adminOnly, (req, res) => res.json({ items: store.listModeration() }));
+// Respaldo completo de la base de datos en JSON (solo administración). Contiene datos personales: guárdalo de forma segura.
+app.get("/api/admin/backup", adminOnly, limit("backup", 10, 20, 3600e3), wrap(async (req, res) => {
+  const pool = store.getPool();
+  if (!pool) return res.status(503).json({ error: "El respaldo requiere Postgres." });
+  const tables = ["polls", "votes", "args", "arg_likes", "comments", "reports", "consents", "users", "notifications"];
+  const out = { app: "contradicta", createdAt: new Date().toISOString(), tables: {} };
+  for (const t of tables) {
+    try { out.tables[t] = (await pool.query(`SELECT * FROM ${t}`)).rows; } catch (_) { out.tables[t] = null; }
+  }
+  console.log("Respaldo descargado por administración");
+  res.setHeader("Content-Disposition", `attachment; filename="contradicta-respaldo-${out.createdAt.slice(0, 10)}.json"`);
+  res.setHeader("Cache-Control", "no-store");
+  res.json(out);
+}));
 app.post("/api/admin/moderate", adminOnly, wrap(async (req, res) => {
   const type = REPORT_TYPES.includes(req.body && req.body.type) ? req.body.type : null;
   const id = str(req.body && req.body.id, 40);
@@ -711,7 +733,9 @@ const indexHtml = fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8")
   .replace('src="/i18n.js"', `src="/i18n.js?v=${fingerprint("i18n.js")}"`)
   .replace('src="/legal.js"', `src="/legal.js?v=${fingerprint("legal.js")}"`)
   .replace('src="/content-i18n.js"', `src="/content-i18n.js?v=${fingerprint("content-i18n.js")}"`)
-  .replace('href="/styles.css"', `href="/styles.css?v=${fingerprint("styles.css")}"`);
+  .replace('href="/styles.css"', `href="/styles.css?v=${fingerprint("styles.css")}"`)
+  // Las redes sociales necesitan la URL absoluta de la imagen para compartir
+  .replace(/content="\/og\.png"/g, `content="${PUBLIC_URL}/og.png"`);
 const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function page(title, desc) {
   return indexHtml
@@ -727,9 +751,33 @@ app.get("/p/:id", (req, res) => {
   const resumen = p.agg.masked ? "Resultados ocultos durante la veda electoral." : `${p.agg.n} votos · tensión ${p.agg.tension == null ? "—" : Math.round(p.agg.tension * 100)}/100.`;
   res.type("html").send(page(`${p.title} · Contradicta`, `${resumen} Ejercicio de opinión no probabilístico. Toma posición en Contradicta.`));
 });
+// Imagen para compartir en redes (PNG 1200×630 generado al arrancar)
+const ogimage = require("./lib/ogimage");
+app.get("/og.png", (req, res) => { res.setHeader("Cache-Control", "public, max-age=604800"); res.type("png").send(ogimage.png()); });
 // Sin caché larga: el navegador revalida con ETag y siempre recibe la última versión tras un despliegue.
 app.use(express.static(PUBLIC, { index: false, maxAge: 0, setHeaders: (res) => res.setHeader("Cache-Control", "no-cache") }));
-app.get("*", (req, res) => res.type("html").send(indexHtml));
+app.get("/", (req, res) => res.type("html").send(indexHtml));
+
+/* ---------- Páginas de error (sin detalles técnicos) ---------- */
+function errorPage(code, title, msg) {
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${code} · Contradicta</title><link rel="icon" href="/icon.svg" type="image/svg+xml">
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#09090f;color:#f1f0f7;font-family:system-ui,Segoe UI,Arial,sans-serif;padding:16px}
+main{max-width:520px;text-align:center}.c{font-size:88px;font-weight:800;background:linear-gradient(135deg,#ff3d5a,#c13cf0,#7c5cff);-webkit-background-clip:text;background-clip:text;color:transparent;margin:0}
+h1{font-size:24px;margin:8px 0}p{color:#9a98ad;line-height:1.5}a{display:inline-block;margin-top:14px;background:linear-gradient(135deg,#ff3d5a,#7c5cff);color:#fff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:600}</style>
+</head><body><main><p class="c">${code}</p><h1>${title}</h1><p>${msg}</p><a href="/">Volver al inicio</a></main></body></html>`;
+}
+app.use((req, res) => res.status(404).type("html").send(errorPage(404, "Página no encontrada", "La dirección que buscas no existe o cambió. Quizá la pregunta fue eliminada.")));
+// Manejador final de errores: nunca muestra la traza; la registra en los logs del servidor.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const status = err.type === "entity.parse.failed" ? 400 : err.type === "entity.too.large" ? 413 : (err.status && err.status < 500 ? err.status : 500);
+  if (status >= 500) console.error(`Error ${req.method} ${req.path}:`, err && err.stack || err);
+  const msg = status === 400 ? "Solicitud no válida." : status === 413 ? "El contenido enviado es demasiado grande." : "Ocurrió un error. Inténtalo de nuevo.";
+  if (req.path.startsWith("/api/")) return res.status(status).json({ error: msg });
+  res.status(status).type("html").send(errorPage(status, status >= 500 ? "Algo salió mal" : "Solicitud no válida", status >= 500 ? "Tuvimos un problema al procesar la página. Ya quedó registrado; inténtalo de nuevo en un momento." : msg));
+});
+process.on("unhandledRejection", (e) => console.error("Promesa rechazada sin manejar:", e && e.stack || e));
 
 /* ---------- Cambios hechos por otra instancia (p. ej. durante un despliegue) ---------- */
 store.onRemoteChange(({ kind, pid, exists }) => {
