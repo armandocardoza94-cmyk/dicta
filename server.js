@@ -307,6 +307,16 @@ app.post("/api/polls", limit("create", 8, 15, 3600e3), requireConsent, requireHu
   // Contradicta no publica encuestas de preferencias electorales (LGIPE art. 213; Reglamento de Elecciones del INE).
   if (b.noElectoral !== true) return res.status(400).json({ error: "Confirma que la pregunta no mide intención de voto por candidaturas, partidos o coaliciones." });
   if (moderation.isElectoral(poll.title, poll.description, ...poll.options)) return res.status(400).json({ error: "Contradicta no publica encuestas de intención de voto ni de preferencias por candidaturas, partidos o coaliciones." });
+  // Traducción opcional al inglés que aporta quien crea la encuesta (se valida igual que el original).
+  const en = b.i18n && typeof b.i18n === "object" ? b.i18n.en : null;
+  if (en && typeof en === "object" && str(en.title, 200)) {
+    const t = { title: str(en.title, 200), description: str(en.description, 600), left: str(en.left, 60), right: str(en.right, 60),
+      options: poll.options.map((_, k) => str(Array.isArray(en.options) ? en.options[k] : "", 140)) };
+    const badT = moderation.check(t.title, t.description, t.left, t.right, ...t.options);
+    if (badT) return res.status(400).json({ error: badT });
+    if (moderation.isElectoral(t.title, t.description, ...t.options)) return res.status(400).json({ error: "Contradicta no publica encuestas de intención de voto ni de preferencias por candidaturas, partidos o coaliciones." });
+    poll.i18n = { en: t };
+  }
   const dup = store.allPolls().find((p) => p.title.toLowerCase() === title.toLowerCase());
   if (dup) return res.status(409).json({ error: "Ya existe una encuesta con esa pregunta.", id: dup.hidden ? undefined : dup.id });
   await store.savePoll(poll);
@@ -555,6 +565,7 @@ const indexHtml = fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8")
   .replace('src="/app.js"', `src="/app.js?v=${fingerprint("app.js")}"`)
   .replace('src="/i18n.js"', `src="/i18n.js?v=${fingerprint("i18n.js")}"`)
   .replace('src="/legal.js"', `src="/legal.js?v=${fingerprint("legal.js")}"`)
+  .replace('src="/content-i18n.js"', `src="/content-i18n.js?v=${fingerprint("content-i18n.js")}"`)
   .replace('href="/styles.css"', `href="/styles.css?v=${fingerprint("styles.css")}"`);
 const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function page(title, desc) {

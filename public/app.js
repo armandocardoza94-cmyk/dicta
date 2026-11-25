@@ -240,10 +240,75 @@ function tensionLabel(t){
 }
 function stanceLabel(p, v){
   if (v===null || v===undefined) return "";
-  if (p.type==="single") return p.options[v] ?? "";
-  if (p.type==="multiple") return (Array.isArray(v)?v:[v]).map(i=>p.options[i]).filter(Boolean).join(" + ");
-  if (p.type==="likert") return LIKERT[v-1] ?? "";
-  return v<5 ? `${v}/10 · hacia ${p.left}` : v>5 ? `${v}/10 · hacia ${p.right}` : "5/10 · al centro";
+  const lp = L(p), en = I18N.lang()==="en";
+  if (p.type==="single") return lp.options[v] ?? "";
+  if (p.type==="multiple") return (Array.isArray(v)?v:[v]).map(i=>lp.options[i]).filter(Boolean).join(" + ");
+  if (p.type==="likert") return I18N.t(LIKERT[v-1] ?? "");
+  return v<5 ? `${v}/10 · ${en?"toward":"hacia"} ${lp.left}` : v>5 ? `${v}/10 · ${en?"toward":"hacia"} ${lp.right}` : (en ? "5/10 · center" : "5/10 · al centro");
+}
+
+/* ---------- Contenido de las encuestas en el idioma elegido ----------
+ * Orden: 1) traducción que aportó quien creó la encuesta (p.i18n[lang]);
+ *        2) diccionario del contenido propio de la plataforma (content-i18n.js);
+ *        3) traducción automática en el propio navegador (API Translator de Chrome, sin enviar datos);
+ *        4) el texto original. */
+const autoTr = new Map();          // "lang|texto" -> traducción automática
+const AUTO_KEY = "autoTr.v1";
+try { const c = JSON.parse(localStorage.getItem(AUTO_KEY) || "{}"); for (const k in c) autoTr.set(k, c[k]); } catch(_){}
+function tcInfo(s, override){
+  const lang = I18N.lang();
+  if (!s || lang==="es") return {text:s, auto:false};
+  if (override) return {text:override, auto:false};
+  const d = (window.CONTENT_I18N||{})[lang];
+  if (d && Object.prototype.hasOwnProperty.call(d, s)) return {text:d[s], auto:false};
+  const a = autoTr.get(lang+"|"+s);
+  if (a) return {text:a, auto:true};
+  queueAuto(s, lang);
+  return {text:s, auto:false, missing:true};
+}
+const tc = (s, override) => tcInfo(s, override).text;
+function L(p){
+  const o = (p.i18n && p.i18n[I18N.lang()]) || {};
+  return {
+    title: tc(p.title, o.title), description: tc(p.description, o.description),
+    left: tc(p.left, o.left), right: tc(p.right, o.right),
+    options: (p.options||[]).map((x,i)=>tc(x, (o.options||[])[i])),
+  };
+}
+function autoBadge(p){
+  if (I18N.lang()==="es") return "";
+  const o = (p.i18n && p.i18n[I18N.lang()]) || {};
+  const info = tcInfo(p.title, o.title);
+  if (info.auto) return `<p class="note auto-tr">Traducción automática hecha en tu navegador · <span translate="no">${esc(p.title)}</span></p>`;
+  if (info.missing) return `<p class="note auto-tr">Pregunta en su idioma original (sin traducción disponible).</p>`;
+  return "";
+}
+// Traducción automática local: solo si el navegador ya tiene el modelo disponible (no descarga nada ni envía datos).
+let autoQueue = new Set(), autoTimer = null, translators = {};
+function queueAuto(s, lang){
+  if (!("Translator" in self) || lang!=="en" || autoQueue.has(s) || s.length > 600) return;
+  autoQueue.add(s); clearTimeout(autoTimer); autoTimer = setTimeout(runAuto, 250);
+}
+async function runAuto(){
+  const lang = I18N.lang(), items = [...autoQueue]; autoQueue.clear();
+  try {
+    if (!translators[lang]) {
+      const av = await self.Translator.availability({sourceLanguage:"es", targetLanguage:lang});
+      if (av !== "available") return;
+      translators[lang] = await self.Translator.create({sourceLanguage:"es", targetLanguage:lang});
+    }
+    let added = 0;
+    for (const s of items) {
+      if (autoTr.has(lang+"|"+s)) continue;
+      const out = await translators[lang].translate(s);
+      if (out && out !== s) { autoTr.set(lang+"|"+s, out); added++; }
+    }
+    if (added) {
+      try { const obj = Object.fromEntries([...autoTr].slice(-800)); localStorage.setItem(AUTO_KEY, JSON.stringify(obj)); } catch(_){}
+      const r = route(), typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+      if (r!=="crear" && !typing) { S.builtFor=null; render(true); }
+    }
+  } catch(_){}
 }
 
 /* ---------- Rutas ---------- */
@@ -323,7 +388,7 @@ function renderList(){
   let polls = [...S.polls.values()];
   const f = S.filter;
   if (f.cat!=="Todas") polls = polls.filter(p=>p.category===f.cat);
-  if (f.q.trim()){ const q=f.q.toLowerCase(); polls = polls.filter(p=>(p.title+" "+(p.description||"")).toLowerCase().includes(q)); }
+  if (f.q.trim()){ const q=f.q.toLowerCase(); polls = polls.filter(p=>(p.title+" "+(p.description||"")+" "+L(p).title).toLowerCase().includes(q)); }
   if (f.sort==="recientes") polls.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   if (f.sort==="votadas") polls.sort((a,b)=>b.agg.n-a.agg.n);
   if (f.sort==="tensas") polls.sort((a,b)=>(tensionOf(b)??-1)-(tensionOf(a)??-1));
@@ -334,7 +399,7 @@ function renderList(){
     return `
     <a class="card" href="#p-${esc(p.id)}">
       <div class="meta"><span class="tag">${esc(p.category)}</span><span>${esc(TYPES[p.type]?.name||"")}</span>${p.closed?'<span class="tag red">Cerrada</span>':""}${fresh&&!p.closed?'<span class="badge-new">Nueva</span>':""}${p.myVote!==null&&p.myVote!==undefined?"<span>· votaste</span>":""}</div>
-      <h3 translate="no">${esc(p.title)}</h3>
+      <h3 translate="no">${esc(L(p).title)}</h3>
       <div class="foot"><span>${fmt(t.n)} ${t.n===1?"voto":"votos"}${t.last24?` <span class="hot">· +${t.last24} hoy</span>`:""}${p.argsCount?` <span class="args-n">· ${p.argsCount} arg.</span>`:""}${p.commentsCount?` <span class="args-n">· ${p.commentsCount} msj.</span>`:""}</span>
         <span style="display:flex;align-items:center">${tn===null?"Tensión —":"Tensión "+Math.round(tn*100)}<span class="tbar"><i style="width:${Math.round((tn||0)*100)}%"></i></span></span></div>
     </a>`; }).join("");
@@ -342,8 +407,8 @@ function renderList(){
   v.innerHTML = `
     <h2 class="sec">Encuestas abiertas al debate</h2>
     <div class="toolbar">
-      <input id="q" list="qsug" autocomplete="off" placeholder="Buscar una pregunta… (p. ej. ${esc((sugFor(f.cat)[0]||[""])[0])})" value="${esc(f.q)}" aria-label="Buscar">
-      <datalist id="qsug">${sugFor(f.cat).concat(f.cat==="Todas"?CATS.flatMap(c=>(SUGGEST[c]||[]).slice(1)):[]).map(x=>`<option value="${esc(x[0])}">`).join("")}</datalist>
+      <input id="q" list="qsug" autocomplete="off" placeholder="Buscar una pregunta… (p. ej. ${esc(tc((sugFor(f.cat)[0]||[""])[0]))})" value="${esc(f.q)}" aria-label="Buscar">
+      <datalist id="qsug">${sugFor(f.cat).concat(f.cat==="Todas"?CATS.flatMap(c=>(SUGGEST[c]||[]).slice(1)):[]).map(x=>`<option value="${esc(tc(x[0]))}">`).join("")}</datalist>
       <select id="sort" aria-label="Ordenar">
         <option value="recientes"${f.sort==="recientes"?" selected":""}>Más recientes</option>
         <option value="tendencia"${f.sort==="tendencia"?" selected":""}>En tendencia (24 h)</option>
@@ -356,7 +421,7 @@ function renderList(){
     <div class="sugg">
       <div class="sugg-h"><span>Preguntas frecuentes · ${esc(f.cat==="Todas"?"todas las categorías":f.cat)}</span><small>Toca una para votarla o crearla</small></div>
       <div class="sugg-list">${sugFor(f.cat).map((x,i)=>{ const ex=[...S.polls.values()].find(p=>p.title.trim().toLowerCase()===x[0].toLowerCase());
-        return `<button class="sugg-item" data-s="${i}"><span class="sugg-t">${esc(TYPES[x[1]].name)}</span><span translate="no">${esc(x[0])}</span><span class="sugg-go">${ex?"Votar →":"Crear +"}</span></button>`; }).join("")}</div>
+        return `<button class="sugg-item" data-s="${i}"><span class="sugg-t">${esc(TYPES[x[1]].name)}</span><span translate="no">${esc(tc(x[0]))}</span><span class="sugg-go">${ex?"Votar →":"Crear +"}</span></button>`; }).join("")}</div>
     </div>
     ${!S.loaded ? `<div class="empty">${S.failed?"No se pudo conectar. Reintentando…":"Cargando encuestas…"}</div>`
       : cards ? `<div class="grid">${cards}</div>`
@@ -385,7 +450,7 @@ function renderPulse(){
   const st=S.stats||{};
   const withT = polls.filter(p=>tensionOf(p)!==null);
   const avgT = withT.length ? withT.reduce((s,p)=>s+tensionOf(p),0)/withT.length : null;
-  const rank = (arr, val) => arr.length ? `<div class="rank">${arr.map((p,i)=>`<a href="#p-${esc(p.id)}"><i>${i+1}</i><span translate="no">${esc(p.title)}</span><b>${val(p)}</b></a>`).join("")}</div>` : `<div class="empty">Aún no hay datos.</div>`;
+  const rank = (arr, val) => arr.length ? `<div class="rank">${arr.map((p,i)=>`<a href="#p-${esc(p.id)}"><i>${i+1}</i><span translate="no">${esc(L(p).title)}</span><b>${val(p)}</b></a>`).join("")}</div>` : `<div class="empty">Aún no hay datos.</div>`;
   const tense = [...withT].sort((a,b)=>tensionOf(b)-tensionOf(a)).slice(0,5);
   const consensus = [...withT].sort((a,b)=>tensionOf(a)-tensionOf(b)).slice(0,5);
   const voted = [...polls].filter(p=>p.agg.n).sort((a,b)=>b.agg.n-a.agg.n).slice(0,5);
@@ -441,8 +506,8 @@ function renderDetail(pid, force){
       <div class="detail">
         <div class="q-head">
           <div class="meta"><span class="tag">${esc(p.category)}</span><span>${esc(TYPES[p.type]?.name||"")}</span>${p.closed?'<span class="tag red">Cerrada</span>':""}<span>${p.createdAt?new Date(p.createdAt).toLocaleDateString(I18N.locale(),{day:"numeric",month:"long",year:"numeric"}):""}</span>${closes}</div>
-          <h2 translate="no">${esc(p.title)}</h2>
-          ${p.description?`<p translate="no">${esc(p.description)}</p>`:""}
+          <h2 translate="no">${esc(L(p).title)}</h2>${autoBadge(p)}
+          ${p.description?`<p translate="no">${esc(L(p).description)}</p>`:""}
           <div class="share" style="margin-top:16px">
             <button class="btn ghost" id="sh-copy">Copiar enlace</button>
             ${navigator.share?'<button class="btn ghost" id="sh-native">Compartir…</button>':""}
@@ -472,7 +537,7 @@ function renderDetail(pid, force){
 
 function wireShare(p){
   const url = `${location.origin}/p/${encodeURIComponent(p.id)}`;
-  const text = `${p.title} — toma posición en Contradicta`;
+  const text = `${L(p).title} — toma posición en Contradicta`;
   $("#sh-copy").addEventListener("click", async ()=>{ try { await navigator.clipboard.writeText(url); toast("Enlace copiado"); } catch(_){ prompt("Copia el enlace:", url); } });
   const n=$("#sh-native"); if (n) n.addEventListener("click", ()=>navigator.share({title:"Contradicta", text, url}).catch(()=>{}));
   $("#sh-wa").href = "https://wa.me/?text="+encodeURIComponent(text+" "+url);
@@ -513,13 +578,13 @@ function renderVote(p){
   let body="";
   if (p.type==="single" || p.type==="multiple"){
     const sel = new Set(Array.isArray(d)?d:(d!==undefined?[d]:[]));
-    body = p.options.map((o,i)=>`<button class="opt${p.type==="single"?" round":""}${sel.has(i)?" sel":""}" data-i="${i}" ${disabled?"disabled":""}><span class="box"></span><span translate="no">${esc(o)}</span></button>`).join("");
+    body = p.options.map((o,i)=>`<button class="opt${p.type==="single"?" round":""}${sel.has(i)?" sel":""}" data-i="${i}" ${disabled?"disabled":""}><span class="box"></span><span translate="no">${esc(L(p).options[i])}</span></button>`).join("");
   } else if (p.type==="likert"){
     body = `<div class="likert">${LIKERT.map((l,i)=>`<button class="opt${d===i+1?" sel":""}" data-i="${i+1}" ${disabled?"disabled":""}><b>${i+1}</b>${esc(l)}</button>`).join("")}</div>`;
   } else {
     const val = d!==undefined ? d : 5;
     body = `<div class="spectrum">
-      <div class="poles" translate="no"><span>← ${esc(p.left||"Tesis")}</span><span>${esc(p.right||"Antítesis")} →</span></div>
+      <div class="poles" translate="no"><span>← ${esc(L(p).left||"Tesis")}</span><span>${esc(L(p).right||"Antítesis")} →</span></div>
       <input type="range" min="0" max="10" step="1" value="${val}" id="rng" aria-label="Tu posición" ${disabled?"disabled":""}>
       <div class="val" id="rngv">${val}</div></div>`;
   }
@@ -589,7 +654,7 @@ function renderResults(p){
     const mineSet = new Set(Array.isArray(mine)?mine:(mine!==null&&mine!==undefined?[mine]:[]));
     const max = Math.max(...t.counts);
     body = p.options.map((o,i)=>{ const pct = t.n? t.counts[i]/t.n*100 : 0;
-      return `<div class="res-row${mineSet.has(i)?" mine":""}${t.counts[i]===max&&max>0?" lead":""}"><div class="lbl"><span translate="no">${esc(o)}</span><span>${Math.round(pct)}% · ${fmt(t.counts[i])}</span></div><div class="res-bar"><i style="width:${pct}%"></i></div></div>`; }).join("");
+      return `<div class="res-row${mineSet.has(i)?" mine":""}${t.counts[i]===max&&max>0?" lead":""}"><div class="lbl"><span translate="no">${esc(L(p).options[i])}</span><span>${Math.round(pct)}% · ${fmt(t.counts[i])}</span></div><div class="res-bar"><i style="width:${pct}%"></i></div></div>`; }).join("");
     if (p.type==="multiple") body += `<div class="note">Porcentajes sobre ${fmt(t.n)} participantes; pueden sumar más de 100%.</div>`;
   } else if (p.type==="likert"){
     body = LIKERT.map((l,i)=>{ const pct=t.counts[i]/t.n*100;
@@ -597,7 +662,7 @@ function renderResults(p){
   } else {
     const max = Math.max(...t.counts,1);
     const meanPos = t.mean/10;
-    body = `<div class="poles" translate="no" style="display:flex;justify-content:space-between;font-weight:700;font-size:13px;margin-bottom:22px"><span>← ${esc(p.left||"Tesis")}</span><span>${esc(p.right||"Antítesis")} →</span></div>
+    body = `<div class="poles" translate="no" style="display:flex;justify-content:space-between;font-weight:700;font-size:13px;margin-bottom:22px"><span>← ${esc(L(p).left||"Tesis")}</span><span>${esc(L(p).right||"Antítesis")} →</span></div>
       <div class="hist">${t.counts.map((c,i)=>`<div class="${mine===i?"mine":""}" style="height:${c/max*100}%" title="${i}: ${c}"></div>`).join("")}
         <span class="mean" style="left:calc(${(meanPos*(10/11)+ (0.5/11))*100}% - 1px)"></span></div>
       <div class="hist-x">${t.counts.map((c,i)=>`<span>${i}</span>`).join("")}</div>`;
@@ -630,7 +695,7 @@ function renderCompare(p){
       </div>
       ${gap===null?"":`<div class="gap">Brecha: <b>${gap.toFixed(1)}</b> puntos · ${gap/scale<.1?"miradas casi idénticas":gap/scale<.25?"diferencia moderada":"contradicción entre ambas orillas"}</div>`}`;
   } else {
-    const labels = p.options;
+    const labels = L(p).options;
     body = `<div class="mini-lg"><span><i class="sw st"></i>México · ${fmt(N.mx)}</span><span><i class="sw off"></i>El extranjero · ${fmt(N.ext)}</span></div>` +
       labels.map((l,i)=>{ const a=N.mx?t.byRegion.mx[i]/N.mx*100:0, b=N.ext?t.byRegion.ext[i]/N.ext*100:0; const d=a-b;
         return `<div class="cmp-row"><div class="lbl"><span translate="no">${esc(l)}</span><em class="${d>0?"up":"down"}">${N.mx&&N.ext?(d>0?"+":"")+Math.round(d)+" pts":""}</em></div>
@@ -793,7 +858,7 @@ function renderDebates(){
   const ended = polls.filter(p=>debateState(p).phase==="ended").sort((a,b)=>b.debateEndsAt-a.debateEndsAt);
   const card = p => { const ds=debateState(p); return `<a class="card" href="#p-${esc(p.id)}" data-debate="1">
       <div class="meta"><span class="tag">${esc(p.category)}</span>${ds.phase==="open"?`<span class="badge-new">⏱ quedan ${leftLabel(ds.left)}</span>`:ds.phase==="ended"?'<span class="tag red">Debate cerrado</span>':""}</div>
-      <h3 translate="no">${esc(p.title)}</h3>
+      <h3 translate="no">${esc(L(p).title)}</h3>
       <div class="foot"><span>${p.commentsCount?`${fmt(p.commentsCount)} ${p.commentsCount===1?"mensaje":"mensajes"} · ${ago(p.lastComment)}`:"Sin mensajes todavía"}</span><span>${tensionOf(p)===null?"Tensión —":"Tensión "+Math.round(tensionOf(p)*100)}</span></div>
     </a>`; };
   const active = live;
@@ -832,8 +897,18 @@ function renderCreate(){
   S.builtFor="crear";
   const v=$("#view");
   const pf = S.prefill; S.prefill=null;
-  const st = {type:"single", options:["",""]};
+  const st = {type:"single", options:["",""], tr:{title:"", description:"", options:[], left:"", right:""}};
   if (pf){ st.type=pf.type; if ((pf.type==="single"||pf.type==="multiple") && pf.extra) st.options=[...pf.extra]; if (pf.type==="spectrum" && pf.extra){ st.left=pf.extra[0]; st.right=pf.extra[1]; } }
+  // Las preguntas sugeridas ya traen su traducción al inglés.
+  if (pf){ const D=(window.CONTENT_I18N||{}).en||{}; st.tr.title=D[pf.title]||""; st.tr.options=st.options.map(o=>D[o]||""); st.tr.left=D[st.left]||""; st.tr.right=D[st.right]||""; }
+  const drawTr = () => {
+    const box=$("#tr-typed"); if (!box) return;
+    box.innerHTML = st.type==="single"||st.type==="multiple"
+      ? st.options.map((o,i)=>`<input data-to="${i}" maxlength="140" placeholder="${esc(o||("Opción "+(i+1)))} → English" value="${esc(st.tr.options[i]||"")}">`).join("")
+      : st.type==="spectrum" ? `<div class="two"><input id="left-en" maxlength="60" placeholder="${esc(st.left||"Polo izquierdo")} → English" value="${esc(st.tr.left)}"><input id="right-en" maxlength="60" placeholder="${esc(st.right||"Polo derecho")} → English" value="${esc(st.tr.right)}"></div>` : "";
+    box.querySelectorAll("[data-to]").forEach(i=>i.addEventListener("input", ()=>{ st.tr.options[Number(i.dataset.to)] = i.value; }));
+    const le=$("#left-en"), re=$("#right-en"); if (le){ le.addEventListener("input",()=>st.tr.left=le.value); re.addEventListener("input",()=>st.tr.right=re.value); }
+  };
   const draw = () => {
     const optsHtml = st.type==="single"||st.type==="multiple" ? `
       <div class="field"><label>Opciones de respuesta</label>
@@ -845,8 +920,9 @@ function renderCreate(){
       </div>` : `<div class="field"><label>Escala</label><div class="note">${LIKERT.map((l,i)=>`${i+1}. ${l}`).join(" · ")}</div></div>`;
     $("#typed").innerHTML = optsHtml;
     v.querySelectorAll(".types button").forEach(b=>b.classList.toggle("on", b.dataset.t===st.type));
-    v.querySelectorAll("[data-o]").forEach(i=>i.addEventListener("input", ()=>{ st.options[Number(i.dataset.o)] = i.value; }));
-    v.querySelectorAll("[data-rm]").forEach(b=>b.addEventListener("click", ()=>{ st.options.splice(Number(b.dataset.rm),1); draw(); }));
+    v.querySelectorAll("[data-o]").forEach(i=>i.addEventListener("input", ()=>{ st.options[Number(i.dataset.o)] = i.value; const t=v.querySelector(`[data-to="${i.dataset.o}"]`); if (t) t.placeholder = (i.value||"…")+" → English"; }));
+    v.querySelectorAll("[data-rm]").forEach(b=>b.addEventListener("click", ()=>{ const k=Number(b.dataset.rm); st.options.splice(k,1); st.tr.options.splice(k,1); draw(); }));
+    drawTr();
     const add=$("#addopt"); if (add) add.addEventListener("click", ()=>{ st.options.push(""); draw(); const ins=v.querySelectorAll("[data-o]"); ins[ins.length-1].focus(); });
     const l=$("#left"), r=$("#right"); if (l){ l.addEventListener("input",()=>st.left=l.value); r.addEventListener("input",()=>st.right=r.value); }
   };
@@ -863,6 +939,12 @@ function renderCreate(){
       <div class="field"><label>Tipo de encuesta</label>
         <div class="types">${Object.entries(TYPES).map(([k,t])=>`<button type="button" data-t="${k}"><b>${t.name}</b><small>${t.desc}</small></button>`).join("")}</div></div>
       <div id="typed"></div>
+      <details class="field tr-box"${pf?" open":""}><summary>Traducción al inglés (opcional)</summary>
+        <p class="note">Si la agregas, quienes usen Contradicta en inglés verán tu pregunta traducida.</p>
+        <input id="ct-en" maxlength="200" placeholder="Question in English" value="${esc(st.tr.title)}">
+        <textarea id="cd-en" maxlength="600" placeholder="Context in English (optional)"></textarea>
+        <div id="tr-typed"></div>
+      </details>
       <label class="check"><input type="checkbox" id="cnoel"> <span>Confirmo que esta pregunta <b>no mide intención de voto</b> ni preferencias por candidaturas, partidos o coaliciones (no permitidas por la ley electoral). <a href="#terminos" target="_blank">Más información</a></span></label>
       <div class="err" id="cerr"></div>
       <div class="row"><button class="btn" type="submit" id="csub">Publicar encuesta</button><span class="note">Podrás cerrarla o eliminarla desde este dispositivo.</span></div>
@@ -878,8 +960,10 @@ function renderCreate(){
     if (!$("#cnoel").checked){ err.textContent="Confirma que la pregunta no mide intención de voto por candidaturas, partidos o coaliciones."; return; }
     const body = {title, description:$("#cd").value.trim(), category:$("#cc").value, type:st.type, noElectoral:true};
     const cz=$("#cz").value; if (cz){ const ts=new Date(cz).getTime(); if (!(ts>Date.now())){ err.textContent="La fecha de cierre debe estar en el futuro."; return; } body.closesAt=ts; }
+    let trOpts = [];
     if (st.type==="single"||st.type==="multiple"){
-      const opts = st.options.map(o=>o.trim()).filter(Boolean);
+      const pairs = st.options.map((o,i)=>[o.trim(), (st.tr.options[i]||"").trim()]).filter(([o])=>o);
+      const opts = pairs.map(([o])=>o); trOpts = pairs.map(([,t])=>t);
       if (opts.length<2){ err.textContent="Añade al menos dos opciones."; return; }
       if (new Set(opts.map(o=>o.toLowerCase())).size!==opts.length){ err.textContent="Hay opciones repetidas."; return; }
       body.options=opts;
@@ -888,6 +972,8 @@ function renderCreate(){
       body.left=(st.left||"").trim(); body.right=(st.right||"").trim();
       if (!body.left||!body.right){ err.textContent="Define ambos polos del espectro."; return; }
     }
+    const tTitle = $("#ct-en").value.trim();
+    if (tTitle) body.i18n = { en: { title:tTitle, description:$("#cd-en").value.trim(), options:trOpts, left:(st.tr.left||"").trim(), right:(st.tr.right||"").trim() } };
     $("#csub").disabled=true;
     try { const d = await api("POST", "/api/polls", body); mergePoll(d.poll); toast("Encuesta publicada"); location.hash = "p-"+d.poll.id; }
     catch(ex){

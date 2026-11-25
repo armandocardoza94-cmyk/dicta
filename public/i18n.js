@@ -41,6 +41,8 @@ const EN = {
   "Conectando…": "Connecting…", "En vivo": "Live", "Reconectando…": "Reconnecting…",
   "No se pudo conectar con el servidor. Reintentando…": "Couldn't reach the server. Retrying…",
   "Región sin indicar": "Region not set",
+  "Contradicta · praxis de la opinión. Los resultados reflejan solo a quienes participan; no son una muestra representativa. Un voto por dispositivo; puedes corregirlo durante 3 minutos y después es definitivo.":
+    "Contradicta · the praxis of opinion. Results only reflect those who take part; they are not a representative sample. One vote per device; you can correct it for 3 minutes, then it is final.",
   "Contradicta · praxis de la opinión. Los resultados reflejan solo a quienes participan; no son una muestra representativa. Un voto por dispositivo; puedes corregirlo durante 3 minutos y después es definitivo. ·":
     "Contradicta · the praxis of opinion. Results only reflect those who take part; they are not a representative sample. One vote per device; you can correct it for 3 minutes, then it is final. ·",
 
@@ -192,6 +194,12 @@ const EN = {
   "Mensaje de debate": "Debate message", "Oculto": "Hidden", "Visible": "Visible", "Abrir encuesta": "Open poll",
   "Ocultar": "Hide", "Restaurar": "Restore", "Descartar reportes": "Dismiss reports", "¿Eliminar definitivamente?": "Delete permanently?",
   "No hay nada pendiente. 🎉": "Nothing pending. 🎉", "Hecho": "Done",
+
+  // Traducción de encuestas
+  "Traducción al inglés (opcional)": "English translation (optional)",
+  "Si la agregas, quienes usen Contradicta en inglés verán tu pregunta traducida.": "If you add it, people using Contradicta in English will see your question translated.",
+  "Traducción automática hecha en tu navegador ·": "Automatic translation made in your browser ·",
+  "Pregunta en su idioma original (sin traducción disponible).": "Question in its original language (no translation available).",
 
   // Legal
   "Aviso de privacidad": "Privacy notice", "Términos y condiciones": "Terms and conditions", "Nota metodológica": "Methodology note",

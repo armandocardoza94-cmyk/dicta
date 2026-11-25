@@ -353,3 +353,9 @@ mark.pend{background:rgba(255,184,107,.18);color:#ffcf9a;border-radius:6px;paddi
 .veda-box{border:1px solid rgba(255,184,107,.4);background:rgba(255,184,107,.08);border-radius:14px;padding:14px 16px}
 .veda-box p{margin:6px 0 0;font-size:14px}
 .veda-note{font-size:13px;color:#ffcf9a;background:rgba(255,184,107,.08);border:1px solid rgba(255,184,107,.35);border-radius:12px;padding:10px 14px;margin:4px 0 6px}
+.tr-box{border:1px dashed var(--line);border-radius:14px;padding:12px 14px}
+.tr-box summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--muted)}
+.tr-box[open] summary{margin-bottom:8px}
+.tr-box input,.tr-box textarea{margin-bottom:8px}
+.tr-box textarea{min-height:60px}
+.auto-tr{font-size:12px;margin:-4px 0 10px;font-style:italic}
