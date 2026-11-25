@@ -36,6 +36,7 @@ Con Postgres: `DATABASE_URL=postgres://... npm start` (las tablas se crean solas
 | `VOTE_LOCK_MINUTES` | Minutos para corregir o retirar un voto; después queda definitivo (por defecto 3). |
 | `PUBLIC_URL` | Dirección pública del sitio que llevan los códigos QR (p. ej. `https://contradicta.onrender.com`). |
 | `LEGAL_NAME` / `LEGAL_ADDRESS` / `LEGAL_EMAIL` / `LEGAL_CITY` | Datos del responsable que aparecen en el aviso de privacidad y los términos (obligatorios por la LFPDPPP). |
+| `BREVO_API_KEY` | Envío de correos por la API de Brevo (puerto 443). **Necesario en el plan gratuito de Render**, que bloquea los puertos SMTP desde sept. 2025. Tiene prioridad sobre `SMTP_URL`. |
 | `SMTP_URL` / `MAIL_FROM` | Envío de correos (enlaces de acceso y alertas). Ej.: `smtps://usuario:clave-de-aplicacion@smtp.gmail.com:465` y `Contradicta <correo@gmail.com>`. Sin ellas, las cuentas quedan desactivadas. |
 | `VEDA_PERIODS` | Periodos de veda electoral `inicioISO/finISO`, separados por comas. Por defecto, la elección federal del 6 de junio de 2027. |
 | `PORT` | Puerto (Render lo define solo). |

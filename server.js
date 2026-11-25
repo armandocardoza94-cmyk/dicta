@@ -808,7 +808,7 @@ store.onRemoteChange(({ kind, pid, exists }) => {
   await accounts.init(store.getPool());
   alerts.setup({ store, publicUrl: () => PUBLIC_URL || `http://localhost:${PORT}`, pushToUser, signUnsub: (uid) => sign("unsub:" + uid) });
   if (accounts.enabled()) alerts.start();
-  console.log(`Cuentas: ${accounts.enabled() ? "activas" : "inactivas (requieren Postgres)"} · correo: ${mailer.enabled() ? "configurado" : "sin configurar (faltan SMTP_URL/MAIL_FROM)"}`);
+  console.log(`Cuentas: ${accounts.enabled() ? "activas" : "inactivas (requieren Postgres)"} · correo: ${mailer.enabled() ? "configurado vía " + mailer.via() : "sin configurar (faltan BREVO_API_KEY o SMTP_URL, y MAIL_FROM)"}`);
   console.log(`Turnstile: ${TURNSTILE_ON ? "activo" : "inactivo (faltan TURNSTILE_SITEKEY/TURNSTILE_SECRET)"}`);
   app.listen(PORT, () => console.log(`Contradicta escuchando en :${PORT} (almacenamiento: ${store.driver})`));
 })().catch((e) => { console.error("No se pudo iniciar:", e); process.exit(1); });
