@@ -18,6 +18,9 @@ const fs = require("fs");
 const path = require("path");
 const store = require("./lib/store");
 const moderation = require("./lib/moderation");
+const accounts = require("./lib/accounts");
+const alerts = require("./lib/alerts");
+const mailer = require("./lib/mailer");
 const { CATS, TYPES, SEED } = require("./lib/catalog");
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -38,7 +41,7 @@ const LOCKED_MSG = "Tu voto ya es definitivo: el plazo para cambiarlo o retirarl
 
 /* ---------- Marco legal ---------- */
 // Versión del aviso de privacidad / términos. Cambiarla obliga a pedir de nuevo el consentimiento.
-const CONSENT_VERSION = "2026-11-24";
+const CONSENT_VERSION = "2026-11-25";
 // Datos del responsable (LFPDPPP): se configuran en Render. Si faltan, los documentos muestran "[pendiente]".
 const LEGAL = {
   name: process.env.LEGAL_NAME || "", address: process.env.LEGAL_ADDRESS || "",
@@ -180,12 +183,40 @@ function requireHuman(req, res, next) {
   });
 }
 
+/* ---------- Sesión de cuenta (cookie firmada "ses": uid.versión.vence.firma) ---------- */
+const SESSION_MS = 30 * 864e5;
+function makeSession(user) {
+  const exp = Date.now() + SESSION_MS;
+  return `${user.id}.${user.sessionVer}.${exp}.${sign(`ses:${user.id}:${user.sessionVer}:${exp}`)}`;
+}
+function parseSession(tok) {
+  if (!tok || typeof tok !== "string") return null;
+  const [uid, ver, exp, sig] = tok.split(".");
+  if (!uid || !sig || Number(exp) < Date.now()) return null;
+  return safeEq(sig, sign(`ses:${uid}:${ver}:${exp}`)) ? { uid, ver: Number(ver) } : null;
+}
+// Usuario de la sesión (o null). Comprueba que la sesión no se haya revocado.
+async function currentUser(req) {
+  if (req._user !== undefined) return req._user;
+  const s = parseSession(req.cookies.ses);
+  const u = s && accounts.enabled() ? await accounts.getUser(s.uid) : null;
+  req._user = u && u.sessionVer === s.ver ? u : null;
+  return req._user;
+}
+const requireUser = (req, res, next) => currentUser(req).then((u) => (u ? next() : res.status(401).json({ error: "Inicia sesión para usar esta función.", needLogin: true })))
+  .catch((e) => { console.error(e); res.status(500).json({ error: "Error interno. Inténtalo de nuevo." }); });
+
 /* ---------- Eventos en vivo (SSE) ---------- */
 const clients = new Set();
 const sseByIp = new Map();
 function broadcast(event, data) {
   const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const res of clients) res.write(msg);
+}
+// Alerta en vivo solo para las conexiones de una persona con sesión.
+function pushToUser(uid, data) {
+  const msg = `event: notify\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of clients) if (res.uid === uid) res.write(msg);
 }
 // Difunde el estado público de una encuesta (o su retiro si está oculta/eliminada).
 function pushPoll(pid) {
@@ -203,6 +234,8 @@ app.get("/api/stream", (req, res) => {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
   res.write(`retry: 3000\nevent: hello\ndata: ${JSON.stringify({ online: clients.size + 1 })}\n\n`);
+  const ses = parseSession(req.cookies.ses);
+  if (ses) res.uid = ses.uid;
   clients.add(res);
   broadcast("online", { online: clients.size });
   const ping = setInterval(() => res.write(": ping\n\n"), 25000);
@@ -321,6 +354,7 @@ app.post("/api/polls", limit("create", 8, 15, 3600e3), requireConsent, requireHu
   if (dup) return res.status(409).json({ error: "Ya existe una encuesta con esa pregunta.", id: dup.hidden ? undefined : dup.id });
   await store.savePoll(poll);
   pushPoll(poll.id);
+  alerts.onNewPoll(poll);   // avisa a quienes siguen el tema (en segundo plano)
   res.status(201).json({ poll: store.getPollView(poll.id, req.vid) });
 }));
 
@@ -384,6 +418,7 @@ app.post("/api/polls/:id/args", limit("arg", 10, 30, 600e3), requireConsent, req
   if (!mine) return res.status(403).json({ error: "Vota primero para poder argumentar tu posición." });
   const arg = { id: newId("a"), pollId: p.id, voterId: req.vid, text, stance: mine.value, createdAt: Date.now(), hidden: false };
   await store.saveArg(arg);
+  alerts.onDebate(p);
   broadcast("args", { pollId: p.id });
   pushPoll(p.id);
   res.status(201).json({ args: store.listArgs(p.id, req.vid, req.isAdmin) });
@@ -436,6 +471,7 @@ app.post("/api/polls/:id/comments", limit("comment", 20, 60, 600e3), requireCons
   const c = { id: newId("c"), pollId: p.id, parentId, voterId: req.vid, text: raw, stance: mine ? mine.value : null, createdAt: Date.now(), hidden: false };
   if (!p.debateStartedAt) await store.savePoll({ ...p, debateStartedAt: c.createdAt });
   await store.saveComment(c);
+  alerts.onDebate(p);
   broadcast("comments", { pollId: p.id });
   pushPoll(p.id);
   res.status(201).json({ comments: store.listComments(p.id, req.vid, req.isAdmin) });
@@ -476,6 +512,115 @@ app.post("/api/report", limit("report", 20, 40, 3600e3), requireConsent, require
   if (type === "arg") broadcast("args", { pollId: t.pollId });
   pushPoll(t.pollId);
   res.json({ ok: true, hidden });
+}));
+
+/* ---------- Cuentas (acceso con enlace por correo) y alertas ---------- */
+const baseUrl = (req) => PUBLIC_URL || `${req.protocol}://${req.get("host")}`;
+const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,24}$/i;
+const sesCookie = (res, value, maxAge) => res.append("Set-Cookie", `ses=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${PROD ? "; Secure" : ""}`);
+const accountsOn = () => accounts.enabled() && mailer.enabled();
+const publicUser = (u) => u && { email: u.email, onboarded: u.onboarded, prefs: u.prefs, follows: u.follows, createdAt: u.createdAt };
+
+app.get("/api/account", wrap(async (req, res) => {
+  const u = await currentUser(req);
+  res.json({ enabled: accountsOn(), user: publicUser(u), unread: u ? await accounts.unreadCount(u.id) : 0 });
+}));
+
+app.post("/api/auth/request", limit("mail", 5, 10, 3600e3), requireHuman, wrap(async (req, res) => {
+  if (!accountsOn()) return res.status(503).json({ error: "Las cuentas todavía no están disponibles." });
+  const b = req.body || {};
+  const email = str(b.email, 254).toLowerCase();
+  if (!EMAIL_RE.test(email)) return res.status(400).json({ error: "Escribe un correo válido." });
+  if (b.accept !== true || b.adult !== true) return res.status(400).json({ error: "Para crear tu cuenta confirma que tienes 18 años o más y acepta el aviso de privacidad y los términos." });
+  // Un enlace por correo cada minuto (evita usar la plataforma para llenar buzones ajenos).
+  if (!(await accounts.once("mail:" + email, 60e3))) return res.json({ ok: true });
+  const raw = await accounts.createLoginToken(email);
+  const lang = b.lang === "en" ? "en" : "es";
+  const link = `${baseUrl(req)}/auth/verify?t=${raw}`;
+  const es = lang === "es";
+  const content = mailer.layout({
+    title: es ? "Tu enlace para entrar" : "Your sign-in link",
+    intro: es ? "Pulsa el botón para entrar a Contradicta. El enlace funciona una sola vez y vence en 20 minutos." : "Press the button to sign in to Contradicta. The link works once and expires in 20 minutes.",
+    button: { label: es ? "Entrar a Contradicta" : "Sign in to Contradicta", url: link },
+    footer: es ? "Si no pediste este correo, ignóralo: nadie podrá entrar sin el enlace." : "If you didn't request this email, ignore it: nobody can sign in without the link.",
+  });
+  try { await mailer.send(email, es ? "Tu enlace para entrar a Contradicta" : "Your Contradicta sign-in link", content); }
+  catch (e) { console.error("correo de acceso:", e.message); return res.status(502).json({ error: "No pudimos enviar el correo. Inténtalo más tarde." }); }
+  res.json({ ok: true });
+}));
+
+app.get("/auth/verify", wrap(async (req, res) => {
+  if (!accounts.enabled()) return res.redirect("/#entrar");
+  const email = await accounts.consumeLoginToken(String(req.query.t || ""));
+  if (!email) return res.redirect("/#entrar-vencido");
+  const { user, isNew } = await accounts.findOrCreateUser(email, CONSENT_VERSION);
+  sesCookie(res, makeSession(user), SESSION_MS / 1000);
+  res.redirect(isNew || !user.onboarded ? "/#bienvenida" : "/#alertas");
+}));
+
+app.post("/api/auth/logout", (req, res) => { sesCookie(res, "", 0); res.json({ ok: true }); });
+
+// Preferencias, temas seguidos y fin del onboarding
+const FREQS = ["inmediato", "diario", "nunca"];
+app.put("/api/account", limit("account", 60, 120, 600e3), requireUser, wrap(async (req, res) => {
+  const b = req.body || {}, u = req._user;
+  const prefs = {}, follows = {};
+  if (b.prefs && typeof b.prefs === "object") {
+    if (FREQS.includes(b.prefs.emailFreq)) prefs.emailFreq = b.prefs.emailFreq;
+    if (typeof b.prefs.emailConsent === "boolean") prefs.emailConsent = b.prefs.emailConsent;
+    if (["es", "en", "nah"].includes(b.prefs.lang)) prefs.lang = b.prefs.lang;
+    if (b.prefs.triggers && typeof b.prefs.triggers === "object") {
+      prefs.triggers = {};
+      for (const k of ["newPoll", "debate", "shift", "closing"]) if (typeof b.prefs.triggers[k] === "boolean") prefs.triggers[k] = b.prefs.triggers[k];
+    }
+  }
+  if (b.follows && typeof b.follows === "object") {
+    if (Array.isArray(b.follows.cats)) follows.cats = [...new Set(b.follows.cats.filter((c) => CATS.includes(c)))];
+    if (Array.isArray(b.follows.keywords)) {
+      const kws = [...new Set(b.follows.keywords.map((k) => str(k, 40)).filter((k) => k.length >= 3))].slice(0, 15);
+      const bad = moderation.check(...kws);
+      if (bad) return res.status(400).json({ error: bad });
+      follows.keywords = kws;
+    }
+  }
+  const updated = await accounts.updateUser(u.id, { prefs, follows, onboarded: b.onboarded === true ? true : undefined });
+  res.json({ user: publicUser(updated) });
+}));
+
+app.post("/api/account/follow", limit("follow", 120, 240, 600e3), requireUser, wrap(async (req, res) => {
+  const p = visiblePoll(req, str(req.body && req.body.pollId, 40));
+  if (!p) return send404(res);
+  const u = await accounts.setFollowPoll(req._user.id, p.id, req.body.on !== false);
+  res.json({ user: publicUser(u) });
+}));
+
+app.get("/api/notifications", requireUser, wrap(async (req, res) => {
+  res.json({ items: await accounts.listNotifications(req._user.id), unread: await accounts.unreadCount(req._user.id) });
+}));
+app.post("/api/notifications/read", requireUser, wrap(async (req, res) => {
+  const ids = req.body && req.body.ids;
+  await accounts.markRead(req._user.id, ids === "all" ? "all" : (Array.isArray(ids) ? ids.map((x) => str(x, 40)) : []));
+  res.json({ unread: await accounts.unreadCount(req._user.id) });
+}));
+
+// Cancelación de la cuenta: borra correo, preferencias, temas seguidos y alertas.
+app.delete("/api/account", requireUser, wrap(async (req, res) => {
+  await accounts.deleteUser(req._user.id);
+  sesCookie(res, "", 0);
+  console.log("Cuenta eliminada a petición de su titular");
+  res.json({ ok: true });
+}));
+
+// Baja de correos con un clic (enlace firmado incluido en cada correo)
+app.get("/unsubscribe", wrap(async (req, res) => {
+  const uid = String(req.query.u || ""), s = String(req.query.s || "");
+  const ok = uid && s && safeEq(s, sign("unsub:" + uid)) && (await accounts.getUser(uid));
+  if (ok) await accounts.updateUser(uid, { prefs: { emailFreq: "nunca" } });
+  res.type("html").send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Contradicta</title>
+    <body style="font-family:Arial,sans-serif;max-width:520px;margin:60px auto;padding:0 16px;color:#111">
+    <h2>Contradi<span style="color:#c13cf0">cta</span></h2>
+    <p>${ok ? "Listo: ya no recibirás correos de alertas. Puedes volver a activarlos en «Mi cuenta»." : "El enlace no es válido o ya venció."}</p>
+    <p><a href="/#cuenta">Ir a Mi cuenta</a></p></body>`);
 }));
 
 /* ---------- Administración ---------- */
@@ -611,6 +756,11 @@ store.onRemoteChange(({ kind, pid, exists }) => {
       store.savePoll({ ...p, closed: true }).then(() => pushPoll(p.id)).catch(console.error);
     }
   }, 30e3).unref();
+  // Cuentas y alertas (requieren Postgres; el correo requiere SMTP_URL y MAIL_FROM)
+  await accounts.init(store.getPool());
+  alerts.setup({ store, publicUrl: () => PUBLIC_URL || `http://localhost:${PORT}`, pushToUser, signUnsub: (uid) => sign("unsub:" + uid) });
+  if (accounts.enabled()) alerts.start();
+  console.log(`Cuentas: ${accounts.enabled() ? "activas" : "inactivas (requieren Postgres)"} · correo: ${mailer.enabled() ? "configurado" : "sin configurar (faltan SMTP_URL/MAIL_FROM)"}`);
   console.log(`Turnstile: ${TURNSTILE_ON ? "activo" : "inactivo (faltan TURNSTILE_SITEKEY/TURNSTILE_SECRET)"}`);
   app.listen(PORT, () => console.log(`Contradicta escuchando en :${PORT} (almacenamiento: ${store.driver})`));
 })().catch((e) => { console.error("No se pudo iniciar:", e); process.exit(1); });

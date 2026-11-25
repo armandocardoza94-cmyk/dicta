@@ -10,7 +10,7 @@
  */
 (() => {
 "use strict";
-const VERSION_DATE = "24 de noviembre de 2026";
+const VERSION_DATE = "25 de noviembre de 2026";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const pend = (label) => `<mark class="pend">[pendiente: ${label}]</mark>`;
 const val = (v, label) => (v ? esc(v) : pend(label));
@@ -40,11 +40,13 @@ function privacidad(L) {
       <li><b>Los textos que publiques</b> (argumentos y mensajes de debate), con la postura que hayas votado.</li>
       <li><b>Datos técnicos de conexión</b> (dirección IP y tipo de navegador), que se usan solo en memoria para seguridad y límites contra abuso, y no se guardan en la base de datos.</li>
       <li><b>Reportes</b> que hagas sobre contenido.</li>
+      <li><b>Si creas una cuenta (opcional)</b>: tu correo electrónico, la fecha de alta y de aceptación de este aviso, tus preferencias (idioma, frecuencia de correos), los temas, palabras clave y preguntas que sigues, y las alertas que te generamos. <b>Tus votos no se asocian a tu cuenta</b>: siguen ligados solo al identificador anónimo del dispositivo.</li>
     </ul>
     <p><b>Datos personales sensibles.</b> Tus opiniones sobre temas políticos, sociales o de derechos pueden considerarse datos sensibles. Por eso solo los tratamos con tu <b>consentimiento expreso</b>, que se te pide antes de participar por primera vez, y siempre de forma anónima: no los asociamos a tu identidad.</p>
 
     <h3>3. Finalidades</h3>
-    <p><b>Finalidades necesarias</b> (sin ellas la plataforma no puede funcionar): (a) registrar tu voto sin duplicarlo y permitirte corregirlo durante el plazo indicado; (b) mostrar resultados agregados y comparar México con el extranjero; (c) publicar y moderar argumentos y mensajes; (d) prevenir fraude, abuso y ataques automatizados; (e) atender solicitudes de derechos ARCO.</p>
+    <p><b>Finalidades necesarias</b> (sin ellas la plataforma no puede funcionar): (a) registrar tu voto sin duplicarlo y permitirte corregirlo durante el plazo indicado; (b) mostrar resultados agregados y comparar México con el extranjero; (c) publicar y moderar argumentos y mensajes; (d) prevenir fraude, abuso y ataques automatizados; (e) atender solicitudes de derechos ARCO; (f) si creas una cuenta, enviarte el enlace de acceso, guardar tus preferencias y mostrarte alertas dentro de la plataforma.</p>
+    <p><b>Finalidad voluntaria</b> (puedes negarte sin perder la cuenta): enviarte por correo las alertas que elijas. Solo lo hacemos si lo aceptas expresamente, y cada correo incluye un enlace para darte de baja con un clic. Los temas que sigues pueden reflejar intereses políticos; los tratamos con confidencialidad y no los compartimos.</p>
     <p><b>No usamos tus datos</b> para publicidad, perfilamiento comercial o político, ni los vendemos o cedemos a terceros. Los resultados que se publican son siempre agregados y no permiten identificar a nadie.</p>
 
     <h3>4. Encargados y transferencias</h3>
@@ -53,6 +55,7 @@ function privacidad(L) {
       <li><b>Render Services, Inc.</b> (Estados Unidos): alojamiento de la plataforma y de la base de datos.</li>
       <li><b>Cloudflare, Inc.</b> (Estados Unidos): red de entrega y verificación anti-bots Turnstile.</li>
       <li><b>Google LLC</b> (Estados Unidos): tipografías web (Google Fonts), que reciben la dirección IP al cargar la página.</li>
+      <li><b>Proveedor de envío de correo electrónico</b> (servicio SMTP contratado por el responsable): envío de enlaces de acceso y alertas; recibe tu dirección de correo y el contenido del mensaje.</li>
     </ul>
     <p>No realizamos transferencias que requieran tu consentimiento. Solo entregaríamos información a una autoridad competente cuando una ley o un mandato judicial lo exijan.</p>
 
@@ -60,13 +63,14 @@ function privacidad(L) {
     <ul>
       <li><code>vid</code>: identificador anónimo del dispositivo (2 años). Necesaria.</li>
       <li><code>hum</code>: recuerda que pasaste la verificación anti-bots (12 horas). Necesaria.</li>
+      <li><code>ses</code>: sesión de tu cuenta, si creaste una (30 días). Necesaria para la cuenta.</li>
       <li><code>adm</code>: sesión de administración, solo para moderadores (12 horas).</li>
       <li>Almacenamiento local del navegador: idioma y región elegidos.</li>
     </ul>
     <p>No usamos cookies de publicidad ni de rastreo de terceros. Si bloqueas las cookies, podrás leer resultados, pero no votar ni publicar.</p>
 
     <h3>6. Conservación</h3>
-    <p>Conservamos tus votos y textos mientras exista la encuesta correspondiente o hasta que solicites su eliminación. Los datos técnicos de conexión que usa la plataforma se descartan automáticamente en un plazo máximo de 24 horas. Los proveedores de alojamiento y red pueden conservar registros técnicos de acceso conforme a sus propias políticas de privacidad.</p>
+    <p>Conservamos tus votos y textos mientras exista la encuesta correspondiente o hasta que solicites su eliminación. Los datos de tu cuenta se conservan mientras la mantengas activa; las alertas se borran automáticamente a los 90 días y los enlaces de acceso vencen a los 20 minutos. Los datos técnicos de conexión que usa la plataforma se descartan automáticamente en un plazo máximo de 24 horas. Los proveedores de alojamiento y red pueden conservar registros técnicos de acceso conforme a sus propias políticas de privacidad.</p>
 
     <h3>7. Derechos ARCO y revocación del consentimiento</h3>
     <p>Tienes derecho a <b>acceder</b> a tus datos, <b>rectificarlos</b>, <b>cancelarlos</b> y <b>oponerte</b> a su tratamiento, así como a <b>revocar tu consentimiento</b>. Como no pedimos datos de identidad, la forma más directa es desde este dispositivo:</p>
@@ -75,6 +79,7 @@ function privacidad(L) {
       <button class="btn danger" id="forget-me">Eliminar mis datos de este dispositivo</button>
       <span class="note" id="forget-note"></span>
     </div>
+    <p>Si tienes cuenta, en <a href="#cuenta">Mi cuenta</a> puedes consultar y corregir tus preferencias y temas, dejar de recibir correos y <b>eliminar tu cuenta</b>, lo que borra tu correo, tus preferencias, tus temas seguidos y tus alertas.</p>
     <p>También puedes escribir a ${val(L.email, "correo electrónico")} indicando tu solicitud. Para ubicar tus datos necesitaremos, por ejemplo, el texto o la fecha de un mensaje que hayas publicado. Responderemos en los plazos que establece la ley. Si consideras que tu derecho no fue atendido, puedes acudir a la <b>Secretaría Anticorrupción y Buen Gobierno</b>, autoridad garante en materia de protección de datos personales.</p>
 
     <h3>8. Menores de edad</h3>
@@ -98,6 +103,9 @@ function terminos(L) {
 
     <h3>3. Encuestas electorales: prohibidas</h3>
     <p>Para cumplir la <b>Ley General de Instituciones y Procedimientos Electorales</b> (art. 213) y el <b>Reglamento de Elecciones del INE</b> (arts. 132 a 148), en Contradicta <b>no se permite</b> crear preguntas que midan <b>intención de voto</b> o <b>preferencias por candidaturas, partidos políticos o coaliciones</b>, ni usar sus resultados para presentarlos como tendencias electorales. Las preguntas así se eliminan. Durante los periodos de <b>veda electoral</b> (los tres días previos a una jornada electoral y hasta el cierre de las casillas) se ocultan los resultados de las encuestas de política nacional. Difundir encuestas electorales durante la veda puede constituir un delito (Ley General en Materia de Delitos Electorales, art. 251).</p>
+
+    <h3>3 bis. Cuentas y alertas</h3>
+    <p>Crear una cuenta es opcional y sirve para seguir temas y preguntas y recibir alertas. Debes usar un correo propio y no compartir los enlaces de acceso. Puedes tener una sola cuenta. Podemos suspender o eliminar cuentas usadas para abusar del servicio o incumplir estos términos. Las alertas son informativas: pueden retrasarse o no enviarse por fallas técnicas, y puedes desactivarlas en cualquier momento.</p>
 
     <h3>4. Uso de los resultados</h3>
     <p>Puedes compartir y citar los resultados indicando siempre la fuente, la fecha, el número de votos y que se trata de un <b>ejercicio no probabilístico de Contradicta</b>. Está prohibido presentarlos como encuesta científica, como representativos de la población o como resultados electorales.</p>

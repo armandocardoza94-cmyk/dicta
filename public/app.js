@@ -90,6 +90,7 @@ const S = {
   polls:new Map(), loaded:false, failed:false, stats:null, online:0, live:false,
   region: store("region") || null,
   meta:{admin:false, turnstile:null},
+  account:{enabled:false, user:null, unread:0},
   filter:{cat:"Todas", q:"", sort:"recientes"},
   draft:{}, builtFor:null, detail:{id:null, args:[], comments:[], canManage:false}, debate:{text:"", replyTo:null, replyText:""}, scrollTo:null
 };
@@ -328,6 +329,7 @@ function render(force){
   if (r==="admin"){ if (force || S.builtFor!=="admin") renderAdminLogin(); return; }
   if (r==="moderar") return renderModeration();
   if (r==="privacidad"||r==="terminos"||r==="metodologia"){ if (force || S.builtFor!==r) renderLegal(r); return; }
+  if (["entrar","entrar-vencido","bienvenida","cuenta","alertas"].includes(r)){ if (force || S.builtFor!==r) renderAccount(r); return; }
   if (r.startsWith("p-")) return renderDetail(r.slice(2), force);
   renderList();
 }
@@ -519,6 +521,7 @@ function renderDetail(pid, force){
             <a class="btn ghost" id="sh-wa" target="_blank" rel="noopener">WhatsApp</a>
             <a class="btn ghost" id="sh-x" target="_blank" rel="noopener">X</a>
             <button class="btn ghost" id="sh-qr">Código QR</button>
+            ${S.account.enabled?`<button class="btn ghost${isFollowing(p.id)?" on":""}" id="sh-follow">${isFollowing(p.id)?"Siguiendo ✓":"Seguir pregunta"}</button>`:""}
             <a class="btn ghost" href="/api/polls/${esc(p.id)}/export.csv" download>Descargar CSV</a>
             ${p.mine?"":p.reported?'<span class="reported" style="align-self:center">Encuesta reportada</span>':`<button class="btn ghost" data-report="poll:${esc(p.id)}">Reportar</button>`}
             ${S.meta.admin&&p.hidden?'<span class="mod-badge" style="align-self:center">Encuesta oculta</span>':""}
@@ -548,6 +551,7 @@ function wireShare(p){
   $("#sh-wa").href = "https://wa.me/?text="+encodeURIComponent(text+" "+url);
   $("#sh-x").href = "https://x.com/intent/post?text="+encodeURIComponent(text)+"&url="+encodeURIComponent(url);
   $("#sh-qr").addEventListener("click", ()=>qrDialog(`/p/${p.id}`, "Escanéalo para abrir esta encuesta en el celular."));
+  const fb=$("#sh-follow"); if (fb) fb.addEventListener("click", ()=>toggleFollow(p.id, fb));
 }
 
 /* Código QR (lo genera el servidor, solo para enlaces del propio sitio) */
@@ -998,6 +1002,181 @@ function paintVeda(){
   el.innerHTML = `<b>Veda electoral en curso</b> · hasta el ${new Date(v.until).toLocaleString(I18N.locale(),{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})} · Se ocultan los resultados de las encuestas de política nacional (LGIPE, art. 213).`;
 }
 
+/* ---------- Cuentas, onboarding y alertas ---------- */
+const en_ = () => I18N.lang()==="en";
+async function loadAccount(){
+  try { const d = await api("GET", "/api/account"); S.account = {enabled:d.enabled, user:d.user, unread:d.unread||0}; } catch(_){}
+  paintAccount();
+}
+function paintAccount(){
+  const box=$("#acct"); if (!box) return;
+  const A=S.account;
+  box.innerHTML = A.user
+    ? `<a class="bell" href="#alertas" aria-label="Alertas">🔔${A.unread?`<b>${A.unread>99?"99+":A.unread}</b>`:""}</a><a class="acct-btn" href="#cuenta">Mi cuenta</a>`
+    : `<a class="acct-btn primary" href="#entrar">Entrar</a>`;
+}
+const isFollowing = pid => !!(S.account.user && S.account.user.follows.polls.includes(pid));
+async function toggleFollow(pid, btn){
+  if (!S.account.user){ S.afterLogin = "p-"+pid; location.hash="entrar"; return; }
+  const on = !isFollowing(pid);
+  btn.disabled=true;
+  try {
+    const d = await api("POST", "/api/account/follow", {pollId:pid, on});
+    S.account.user = d.user;
+    btn.textContent = on ? "Siguiendo ✓" : "Seguir pregunta"; btn.classList.toggle("on", on);
+    toast(on ? "Te avisaremos de novedades en esta pregunta" : "Dejaste de seguir esta pregunta");
+  } catch(e){ toast(e.message); }
+  btn.disabled=false;
+}
+function notifText(n){
+  const d=n.data||{}, en=en_();
+  const title = (en && d.i18n && d.i18n.en && d.i18n.en.title) || tc(d.title || "");
+  const cat = I18N.t(d.category || "");
+  if (n.type==="new_poll") return en ? `New poll in ${cat}: “${title}”` : `Nueva encuesta en ${cat}: «${title}»`;
+  if (n.type==="debate") return en ? `New messages in the debate on “${title}”` : `Nuevos mensajes en el debate de «${title}»`;
+  if (n.type==="shift") return d.leaderChanged
+    ? (en ? `The leading option changed in “${title}”${d.leader?`: now “${tc(d.leader)}”`:""}` : `Cambió la opción líder en «${title}»${d.leader?`: ahora va «${d.leader}»`:""}`)
+    : (en ? `Tension in “${title}” moved from ${d.from} to ${d.to}` : `La tensión en «${title}» pasó de ${d.from} a ${d.to}`);
+  if (n.type==="closing") return d.what==="debate" ? (en?`The debate on “${title}” closes soon`:`El debate de «${title}» cierra pronto`) : (en?`Voting on “${title}” closes soon`:`La votación de «${title}» cierra pronto`);
+  return title;
+}
+const NOTIF_ICON = {new_poll:"🆕", debate:"💬", shift:"📈", closing:"⏳"};
+
+// Controles compartidos por el onboarding y Mi cuenta
+function prefsForm(u){
+  const f=u.follows, p=u.prefs;
+  return `
+    <div class="field"><label>Temas que sigues</label>
+      <div class="chips" id="pf-cats">${CATS.map(c=>`<button type="button" class="chip${f.cats.includes(c)?" on":""}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div></div>
+    <div class="field"><label for="pf-kw">Palabras clave (separadas por comas)</label>
+      <input id="pf-kw" maxlength="400" placeholder="p. ej. agua, remesas, salario mínimo" value="${esc(f.keywords.join(", "))}">
+      <small class="hint">Te avisamos cuando se publique una encuesta que las mencione.</small></div>
+    <div class="field"><label>Avísame cuando…</label>
+      <label class="check"><input type="checkbox" data-t="newPoll"${p.triggers.newPoll?" checked":""}> <span>se publique una encuesta nueva de mis temas</span></label>
+      <label class="check"><input type="checkbox" data-t="debate"${p.triggers.debate?" checked":""}> <span>haya mensajes nuevos en el debate de preguntas que sigo</span></label>
+      <label class="check"><input type="checkbox" data-t="shift"${p.triggers.shift?" checked":""}> <span>los resultados de una pregunta que sigo cambien con fuerza</span></label>
+      <label class="check"><input type="checkbox" data-t="closing"${p.triggers.closing?" checked":""}> <span>una votación o debate que sigo esté por cerrar</span></label></div>
+    <div class="field"><label>Alertas por correo</label>
+      <div class="radios">${[["inmediato","Al momento (agrupadas cada 15 min)"],["diario","Resumen diario (8:00 a. m.)"],["nunca","No enviar correos"]].map(([v,l])=>`<label class="check"><input type="radio" name="pf-freq" value="${v}"${p.emailFreq===v?" checked":""}> <span>${l}</span></label>`).join("")}</div>
+      <label class="check" translate="no"><input type="checkbox" id="pf-mailok"${p.emailConsent?" checked":""}> <span>Acepto recibir en mi correo las alertas que elegí. Puedo darme de baja con un clic en cualquier correo.</span></label>
+      <small class="hint">En la app siempre verás tus alertas en la campana 🔔.</small></div>`;
+}
+function readPrefs(box){
+  const cats=[...box.querySelectorAll("#pf-cats .chip.on")].map(b=>b.dataset.c);
+  const keywords=$("#pf-kw",box).value.split(",").map(s=>s.trim()).filter(s=>s.length>=3);
+  const triggers={}; box.querySelectorAll("[data-t]").forEach(i=>triggers[i.dataset.t]=i.checked);
+  const freq=(box.querySelector('input[name="pf-freq"]:checked')||{}).value||"diario";
+  const mailok=$("#pf-mailok",box).checked;
+  return { follows:{cats, keywords}, prefs:{triggers, emailFreq: mailok?freq:"nunca", emailConsent:mailok, lang:I18N.lang()} };
+}
+function wirePrefs(box){ box.querySelectorAll("#pf-cats .chip").forEach(b=>b.addEventListener("click", ()=>b.classList.toggle("on"))); }
+
+async function renderAccount(r){
+  S.builtFor=r;
+  const v=$("#view"), A=S.account, u=A.user;
+  if ((r==="entrar"||r==="entrar-vencido") && u){ location.hash = u.onboarded ? "cuenta" : "bienvenida"; return; }
+  if (r==="entrar"||r==="entrar-vencido"){
+    v.innerHTML = `<h2 class="sec">Entrar o crear cuenta</h2>
+      ${r==="entrar-vencido"?`<div class="caveat legal-warn">El enlace venció o ya se usó. Pide uno nuevo.</div>`:""}
+      ${!A.enabled ? `<div class="empty">Las cuentas estarán disponibles muy pronto. Mientras tanto puedes votar y debatir sin registrarte.</div>` : `
+      <form class="form" id="lf2" novalidate style="max-width:520px">
+        <p class="note" style="margin-top:0">Con una cuenta puedes seguir temas y preguntas y recibir alertas. <b>Tus votos siguen siendo anónimos</b>: no se asocian a tu cuenta.</p>
+        <div class="field"><label for="le">Tu correo</label><input id="le" type="email" autocomplete="email" placeholder="nombre@correo.com" required></div>
+        <label class="check" translate="no"><input type="checkbox" id="la-adult"> <span>Confirmo que tengo <b>18 años o más</b>.</span></label>
+        <label class="check" translate="no"><input type="checkbox" id="la-accept"> <span>Acepto el <a href="#privacidad" target="_blank">aviso de privacidad</a> y los <a href="#terminos" target="_blank">términos y condiciones</a>.</span></label>
+        <div class="err" id="lerr2"></div>
+        <div class="row"><button class="btn" type="submit" id="lsub2">Enviarme el enlace</button></div>
+        <p class="note">Te enviaremos un enlace para entrar, sin contraseña. Vence en 20 minutos.</p>
+      </form>`}`;
+    const f=$("#lf2");
+    if (f) f.addEventListener("submit", async e=>{
+      e.preventDefault(); const b=$("#lsub2"); b.disabled=true; $("#lerr2").textContent="";
+      try {
+        await api("POST", "/api/auth/request", {email:$("#le").value.trim(), adult:$("#la-adult").checked, accept:$("#la-accept").checked, lang:I18N.lang()==="en"?"en":"es"});
+        f.innerHTML = `<h3 style="margin-top:0">Revisa tu correo 📬</h3><p>Si la dirección es correcta, te llegará un enlace para entrar en unos segundos. Revisa también la carpeta de spam o promociones.</p>`;
+      } catch(err){ b.disabled=false; $("#lerr2").textContent=err.message; }
+    });
+    return;
+  }
+  if (!u){ v.innerHTML = `<div class="empty">Inicia sesión para ver esta sección.<br><br><a class="btn" href="#entrar">Entrar</a></div>`; return; }
+
+  if (r==="bienvenida"){
+    let step = 0;
+    const steps = ["Bienvenida","Temas y alertas","Listo"];
+    const draw = () => {
+      v.innerHTML = `<h2 class="sec">${step===0?"¡Bienvenida, bienvenido!":step===1?"¿Qué te interesa?":"Todo listo"}</h2>
+        <div class="steps">${steps.map((s,i)=>`<span class="${i<=step?"on":""}">${i+1}. ${s}</span>`).join("")}</div>
+        <div class="form onboard" id="ob">${
+          step===0 ? `<p>Contradicta mide <b>cuán dividida está la opinión</b> sobre los temas que importan. Con tu cuenta (<span translate="no">${esc(u.email)}</span>) puedes:</p>
+            <ul class="ob-list"><li>🔎 <b>Seguir temas</b> y palabras clave, y enterarte cuando se publique una encuesta.</li><li>⭐ <b>Seguir preguntas</b> con el botón «Seguir pregunta».</li><li>🔔 Recibir <b>alertas</b> de debates, cambios fuertes de resultados y cierres próximos, en la app o por correo.</li><li>🕶️ Tus <b>votos siguen siendo anónimos</b>: nunca se ligan a tu cuenta.</li></ul>
+            <div class="row"><button class="btn" id="ob-next">Empezar</button><a class="btn ghost" href="#encuestas" id="ob-skip">Saltar por ahora</a></div>`
+          : step===1 ? `${prefsForm(u)}<div class="err" id="ob-err"></div><div class="row"><button class="btn" id="ob-next">Guardar y continuar</button><button class="btn ghost" id="ob-back">Atrás</button></div>`
+          : `<p>Ya puedes explorar. Entra a cualquier encuesta y pulsa <b>«Seguir pregunta»</b> para recibir sus novedades. Tus alertas aparecen en la campana 🔔 de arriba.</p>
+            <div class="row"><a class="btn" href="#encuestas">Ver encuestas</a><a class="btn ghost" href="#cuenta">Ajustar mi cuenta</a></div>`}</div>`;
+      const ob=$("#ob");
+      if (step===1) wirePrefs(ob);
+      const nx=$("#ob-next"), bk=$("#ob-back"), sk=$("#ob-skip");
+      if (bk) bk.addEventListener("click", ()=>{ step--; draw(); });
+      if (sk) sk.addEventListener("click", ()=>{ api("PUT","/api/account",{onboarded:true}).then(d=>{ S.account.user=d.user; }).catch(()=>{}); });
+      if (nx) nx.addEventListener("click", async ()=>{
+        if (step===1){
+          nx.disabled=true;
+          try { const d = await api("PUT", "/api/account", {...readPrefs(ob), onboarded:true}); S.account.user=d.user; }
+          catch(e){ nx.disabled=false; $("#ob-err").textContent=e.message; return; }
+        }
+        step++; draw();
+        if (step===2 && S.afterLogin){ const go=S.afterLogin; S.afterLogin=null; setTimeout(()=>{ location.hash=go; }, 1200); }
+      });
+    };
+    draw();
+    return;
+  }
+
+  if (r==="cuenta"){
+    const followed = u.follows.polls.map(id=>getPoll(id)).filter(Boolean);
+    v.innerHTML = `<h2 class="sec">Mi cuenta</h2>
+      <p class="note" style="margin-top:-8px">Sesión iniciada como <b translate="no">${esc(u.email)}</b> · <a href="#alertas">Ver mis alertas</a></p>
+      <div class="form" id="acc" style="max-width:760px">
+        ${prefsForm(u)}
+        <div class="field"><label>Preguntas que sigues (${followed.length})</label>
+          ${followed.length ? `<div class="rank">${followed.map(p=>`<a href="#p-${esc(p.id)}"><i>⭐</i><span translate="no">${esc(L(p).title)}</span><b data-unf="${esc(p.id)}" role="button">Dejar de seguir</b></a>`).join("")}</div>` : `<p class="note">Aún no sigues ninguna. Entra a una encuesta y pulsa «Seguir pregunta».</p>`}</div>
+        <div class="err" id="acc-err"></div>
+        <div class="row"><button class="btn" id="acc-save">Guardar cambios</button><button class="btn ghost" id="acc-out">Cerrar sesión</button><button class="btn danger" id="acc-del">Eliminar mi cuenta</button></div>
+        <p class="note">Eliminar tu cuenta borra tu correo, tus preferencias, los temas que sigues y tus alertas. Tus votos anónimos no se ven afectados; para borrarlos usa «Eliminar mis datos» en el <a href="#privacidad">aviso de privacidad</a>.</p>
+      </div>`;
+    const acc=$("#acc"); wirePrefs(acc);
+    acc.querySelectorAll("[data-unf]").forEach(b=>b.addEventListener("click", async e=>{ e.preventDefault(); e.stopPropagation();
+      try { const d=await api("POST","/api/account/follow",{pollId:b.dataset.unf, on:false}); S.account.user=d.user; renderAccount("cuenta"); } catch(err){ toast(err.message); } }));
+    $("#acc-save").addEventListener("click", async e=>{
+      e.target.disabled=true; $("#acc-err").textContent="";
+      try { const d=await api("PUT","/api/account",readPrefs(acc)); S.account.user=d.user; toast("Cambios guardados"); }
+      catch(err){ $("#acc-err").textContent=err.message; }
+      e.target.disabled=false;
+    });
+    $("#acc-out").addEventListener("click", async ()=>{ await api("POST","/api/auth/logout"); S.account.user=null; S.account.unread=0; paintAccount(); toast("Sesión cerrada"); location.hash="encuestas"; });
+    $("#acc-del").addEventListener("click", async e=>{
+      const b=e.target; if (b.dataset.armed!=="1"){ b.dataset.armed="1"; b.textContent="¿Seguro? Pulsa de nuevo"; return; }
+      try { await api("DELETE","/api/account"); S.account.user=null; S.account.unread=0; paintAccount(); toast("Cuenta eliminada"); location.hash="encuestas"; }
+      catch(err){ toast(err.message); }
+    });
+    return;
+  }
+
+  if (r==="alertas"){
+    v.innerHTML = `<h2 class="sec">Mis alertas</h2><div class="empty">Cargando…</div>`;
+    let d; try { d = await api("GET","/api/notifications"); } catch(e){ v.innerHTML=`<div class="empty">${esc(e.message)}</div>`; return; }
+    if (route()!=="alertas") return;
+    const items=d.items||[];
+    v.innerHTML = `<h2 class="sec">Mis alertas</h2>
+      <div class="row" style="margin:-6px 0 16px"><a class="btn ghost" href="#cuenta">Temas y preferencias</a>${items.some(n=>!n.read)?`<button class="btn ghost" id="al-read">Marcar todo como leído</button>`:""}</div>
+      ${items.length ? `<div class="notif-list" translate="no">${items.map(n=>`<a class="notif${n.read?"":" unread"}" href="#p-${esc(n.pollId)}"><span class="ni">${NOTIF_ICON[n.type]||"🔔"}</span><span class="nt">${esc(notifText(n))}</span><span class="nw">${ago(n.createdAt)}</span></a>`).join("")}</div>`
+        : `<div class="empty">Aún no tienes alertas. Sigue temas y preguntas para recibirlas.<br><br><a class="btn" href="#cuenta">Elegir temas</a></div>`}`;
+    const mark = async () => { try { const r2=await api("POST","/api/notifications/read",{ids:"all"}); S.account.unread=r2.unread; paintAccount(); } catch(_){} };
+    const b=$("#al-read"); if (b) b.addEventListener("click", ()=>{ mark().then(()=>renderAccount("alertas")); });
+    if (items.some(n=>!n.read)) setTimeout(()=>{ if (route()==="alertas") mark(); }, 2500);
+  }
+}
+
 /* ---------- Administración ---------- */
 async function loadMeta(){
   try { const m = await api("GET", "/api/meta"); S.meta = {admin:!!m.admin, turnstile:m.turnstile||null, reportHideAt:m.reportHideAt, voteLockMs:m.voteLockMs, legal:m.legal||{}, consentVersion:m.consentVersion, veda:m.veda||{active:false}}; } catch(_){}
@@ -1094,7 +1273,7 @@ function renderAbout(){
 function onData(){
   paintStatus();
   const r = route();
-  if (["crear","manifiesto","admin","moderar","privacidad","terminos","metodologia"].includes(r)) return;
+  if (["crear","manifiesto","admin","moderar","privacidad","terminos","metodologia","entrar","entrar-vencido","bienvenida","cuenta","alertas"].includes(r)) return;
   if (r==="pulso") return renderPulse();
   if (r==="debates") return renderDebates();
   if (r.startsWith("p-")){
@@ -1130,6 +1309,7 @@ function connect(){
   es.addEventListener("online", e=>{ try { S.online=JSON.parse(e.data).online; } catch(_){} paintStatus(); });
   es.addEventListener("poll", e=>{ try { const p=JSON.parse(e.data); mergePoll(p); refreshStats(); scheduleStats(); onData(); } catch(_){} });
   es.addEventListener("deleted", e=>{ try { const {id}=JSON.parse(e.data); S.polls.delete(id); scheduleStats(); onData(); } catch(_){} });
+  es.addEventListener("notify", e=>{ try { const d=JSON.parse(e.data); if (d.notification){ S.account.unread=(S.account.unread||0)+1; paintAccount(); toast(I18N.lang()==="en"?"New alert":"Nueva alerta"); if (route()==="alertas") renderAccount("alertas"); } } catch(_){} });
   es.addEventListener("resync", ()=>{ loadMeta(); loadAll(); if (S.detail.id) loadDetail(S.detail.id); });
   es.addEventListener("comments", async e=>{
     try {
@@ -1180,6 +1360,7 @@ store("adminToken", null);   // limpia la contraseña guardada por versiones ant
 window.addEventListener("langchange", ()=>{ if (route()!=="crear") { S.builtFor=null; render(true); } paintStatus(); });
 paintRegion();
 loadMeta().then(()=>{ if (["admin","moderar","privacidad","terminos","metodologia"].includes(route())) render(true); });
+loadAccount().then(()=>{ if (["entrar","entrar-vencido","bienvenida","cuenta","alertas"].includes(route()) || route().startsWith("p-")) { S.builtFor=null; render(true); } });
 render(true);
 loadAll();
 connect();
