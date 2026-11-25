@@ -36,6 +36,23 @@ const VOTE_LOCK_MS = (Number(process.env.VOTE_LOCK_MINUTES) || 3) * 60e3;
 const voteLocked = (v) => !!v && Date.now() > (v.c || v.t) + VOTE_LOCK_MS;
 const LOCKED_MSG = "Tu voto ya es definitivo: el plazo para cambiarlo o retirarlo terminó.";
 
+/* ---------- Marco legal ---------- */
+// Versión del aviso de privacidad / términos. Cambiarla obliga a pedir de nuevo el consentimiento.
+const CONSENT_VERSION = "2026-11-24";
+// Datos del responsable (LFPDPPP): se configuran en Render. Si faltan, los documentos muestran "[pendiente]".
+const LEGAL = {
+  name: process.env.LEGAL_NAME || "", address: process.env.LEGAL_ADDRESS || "",
+  email: process.env.LEGAL_EMAIL || "", city: process.env.LEGAL_CITY || "",
+};
+// Veda electoral (LGIPE art. 213): periodos "inicioISO/finISO" separados por comas. Durante la veda se ocultan
+// los resultados de las encuestas de política nacional. Por defecto: elección federal del 6 de junio de 2027
+// (3 días previos y hasta el cierre de casillas en todo el país). Verificar fechas con el calendario del INE.
+const VEDA = (process.env.VEDA_PERIODS || "2027-06-03T00:00:00-06:00/2027-06-06T20:00:00-06:00")
+  .split(",").map((s) => s.trim().split("/")).map(([a, b]) => [Date.parse(a), Date.parse(b)]).filter(([a, b]) => a && b && b > a);
+const vedaNow = () => { const t = Date.now(); const v = VEDA.find(([a, b]) => t >= a && t < b); return v ? { active: true, until: v[1] } : { active: false, next: (VEDA.find(([a]) => a > t) || [])[0] || null }; };
+const VEDA_CATS = ["Política nacional"];
+store.setResultMask((p) => vedaNow().active && (VEDA_CATS.includes(p.category) || !!p.electoral));
+
 const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
@@ -142,6 +159,14 @@ async function verifyTurnstile(token, ip) {
     return !!d.success;
   } catch (e) { console.error("Turnstile:", e.message); return false; }
 }
+// Antes de votar, crear o publicar: consentimiento expreso vigente (mayoría de edad + aviso de privacidad + términos).
+function requireConsent(req, res, next) {
+  if (req.isAdmin) return next();
+  store.hasConsent(req.vid, CONSENT_VERSION).then((ok) => {
+    if (ok) return next();
+    res.status(403).json({ error: "Antes de participar, acepta el aviso de privacidad y los términos.", needConsent: true, version: CONSENT_VERSION });
+  }).catch((e) => { console.error(e); res.status(500).json({ error: "Error interno. Inténtalo de nuevo." }); });
+}
 function requireHuman(req, res, next) {
   if (!TURNSTILE_ON || req.isAdmin) return next();
   if (checkToken("human", req.vid, req.cookies.hum)) return next();
@@ -216,6 +241,26 @@ app.get("/healthz", (req, res) => res.json({ ok: true, driver: store.driver }));
 app.get("/api/meta", (req, res) => res.json({
   cats: CATS, types: TYPES, admin: req.isAdmin,
   turnstile: TURNSTILE_ON ? TURNSTILE_SITEKEY : null, reportHideAt: REPORT_HIDE_AT, voteLockMs: VOTE_LOCK_MS,
+  consentVersion: CONSENT_VERSION, legal: LEGAL, veda: { ...vedaNow(), cats: VEDA_CATS },
+}));
+
+/* Consentimiento expreso: las opiniones políticas son datos personales sensibles (LFPDPPP). */
+app.get("/api/consent", wrap(async (req, res) => res.json({ version: CONSENT_VERSION, given: await store.hasConsent(req.vid, CONSENT_VERSION) })));
+app.post("/api/consent", limit("consent", 20, 60, 600e3), wrap(async (req, res) => {
+  const b = req.body || {};
+  if (b.version !== CONSENT_VERSION) return res.status(400).json({ error: "El aviso de privacidad cambió. Recarga la página para leer la versión vigente." });
+  if (b.adult !== true || b.accept !== true) return res.status(400).json({ error: "Para participar debes confirmar que tienes 18 años o más y aceptar el aviso de privacidad y los términos." });
+  await store.saveConsent(req.vid, CONSENT_VERSION);
+  res.json({ ok: true, version: CONSENT_VERSION });
+}));
+/* Derecho de cancelación: borra todo lo asociado a este dispositivo y le asigna un identificador nuevo. */
+app.delete("/api/me", limit("forget", 5, 20, 3600e3), wrap(async (req, res) => {
+  const r = await store.deleteVoterData(req.vid);
+  for (const pid of r.polls) { pushPoll(pid); broadcast("comments", { pollId: pid }); broadcast("args", { pollId: pid }); }
+  setCookie(res, "vid", crypto.randomBytes(16).toString("hex"), 60 * 60 * 24 * 730);
+  res.append("Set-Cookie", `hum=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${PROD ? "; Secure" : ""}`);
+  console.log(`Datos de un dispositivo eliminados a petición (${r.deleted} registros)`);
+  res.json({ ok: true, deleted: r.deleted });
 }));
 
 app.get("/api/polls", (req, res) => {
@@ -233,7 +278,7 @@ app.get("/api/polls/:id", (req, res) => {
   });
 });
 
-app.post("/api/polls", limit("create", 8, 15, 3600e3), requireHuman, wrap(async (req, res) => {
+app.post("/api/polls", limit("create", 8, 15, 3600e3), requireConsent, requireHuman, wrap(async (req, res) => {
   const b = req.body || {};
   const title = str(b.title, 200);
   const type = TYPES[b.type] ? b.type : null;
@@ -259,6 +304,9 @@ app.post("/api/polls", limit("create", 8, 15, 3600e3), requireHuman, wrap(async 
   }
   const bad = moderation.check(poll.title, poll.description, poll.left, poll.right, ...poll.options);
   if (bad) return res.status(400).json({ error: bad });
+  // Contradicta no publica encuestas de preferencias electorales (LGIPE art. 213; Reglamento de Elecciones del INE).
+  if (b.noElectoral !== true) return res.status(400).json({ error: "Confirma que la pregunta no mide intención de voto por candidaturas, partidos o coaliciones." });
+  if (moderation.isElectoral(poll.title, poll.description, ...poll.options)) return res.status(400).json({ error: "Contradicta no publica encuestas de intención de voto ni de preferencias por candidaturas, partidos o coaliciones." });
   const dup = store.allPolls().find((p) => p.title.toLowerCase() === title.toLowerCase());
   if (dup) return res.status(409).json({ error: "Ya existe una encuesta con esa pregunta.", id: dup.hidden ? undefined : dup.id });
   await store.savePoll(poll);
@@ -266,7 +314,7 @@ app.post("/api/polls", limit("create", 8, 15, 3600e3), requireHuman, wrap(async 
   res.status(201).json({ poll: store.getPollView(poll.id, req.vid) });
 }));
 
-app.post("/api/polls/:id/vote", limit("vote", 120, 300, 600e3), requireHuman, wrap(async (req, res) => {
+app.post("/api/polls/:id/vote", limit("vote", 120, 300, 600e3), requireConsent, requireHuman, wrap(async (req, res) => {
   const p = visiblePoll(req, req.params.id);
   if (!p) return send404(res);
   if (store.isClosed(p)) return res.status(403).json({ error: "La votación está cerrada." });
@@ -315,7 +363,7 @@ app.delete("/api/polls/:id", limit("manage", 60, 120, 600e3), wrap(async (req, r
 }));
 
 /* Argumentos: cada participante puede defender su posición */
-app.post("/api/polls/:id/args", limit("arg", 10, 30, 600e3), requireHuman, wrap(async (req, res) => {
+app.post("/api/polls/:id/args", limit("arg", 10, 30, 600e3), requireConsent, requireHuman, wrap(async (req, res) => {
   const p = visiblePoll(req, req.params.id);
   if (!p) return send404(res);
   const text = str(req.body && req.body.text, 400);
@@ -331,7 +379,7 @@ app.post("/api/polls/:id/args", limit("arg", 10, 30, 600e3), requireHuman, wrap(
   res.status(201).json({ args: store.listArgs(p.id, req.vid, req.isAdmin) });
 }));
 
-app.post("/api/args/:id/like", limit("like", 200, 400, 600e3), requireHuman, wrap(async (req, res) => {
+app.post("/api/args/:id/like", limit("like", 200, 400, 600e3), requireConsent, requireHuman, wrap(async (req, res) => {
   const a = store.getArg(req.params.id);
   if (!a || (a.hidden && !req.isAdmin)) return res.status(404).json({ error: "Argumento no encontrado." });
   await store.toggleLike(a.id, req.vid);
@@ -358,7 +406,7 @@ app.get("/api/polls/:id/comments", (req, res) => {
   if (!p) return send404(res);
   res.json({ comments: store.listComments(p.id, req.vid, req.isAdmin) });
 });
-app.post("/api/polls/:id/comments", limit("comment", 20, 60, 600e3), requireHuman, wrap(async (req, res) => {
+app.post("/api/polls/:id/comments", limit("comment", 20, 60, 600e3), requireConsent, requireHuman, wrap(async (req, res) => {
   const p = visiblePoll(req, req.params.id);
   if (!p) return send404(res);
   // El debate dura 24 h desde su primer mensaje; después queda en solo lectura.
@@ -395,8 +443,8 @@ app.delete("/api/comments/:id", limit("manage", 60, 120, 600e3), wrap(async (req
 
 /* ---------- Reportes de la comunidad ---------- */
 const REPORT_TYPES = ["comment", "arg", "poll"];
-const REPORT_REASONS = ["ofensivo", "odio", "spam", "datos_personales", "desinformacion", "otro"];
-app.post("/api/report", limit("report", 20, 40, 3600e3), requireHuman, wrap(async (req, res) => {
+const REPORT_REASONS = ["ofensivo", "odio", "violencia_genero", "encuesta_electoral", "spam", "datos_personales", "desinformacion", "otro"];
+app.post("/api/report", limit("report", 20, 40, 3600e3), requireConsent, requireHuman, wrap(async (req, res) => {
   const type = REPORT_TYPES.includes(req.body && req.body.type) ? req.body.type : null;
   const id = str(req.body && req.body.id, 40);
   const reason = REPORT_REASONS.includes(req.body && req.body.reason) ? req.body.reason : "otro";
@@ -426,7 +474,7 @@ app.post("/api/admin/login", limit("login", 5, 5, 15 * 60e3), (req, res) => {
   const token = str(req.body && req.body.token, 200);
   if (!ADMIN_TOKEN) return res.status(503).json({ error: "La administración no está configurada (falta ADMIN_TOKEN)." });
   if (!token || !safeEq(token, ADMIN_TOKEN)) {
-    console.warn(`Intento de acceso de administración fallido desde ${req.clientIp}`);
+    console.warn("Intento de acceso de administración fallido");
     return res.status(401).json({ error: "Contraseña incorrecta." });
   }
   setCookie(res, "adm", makeToken("adm", "admin", ADMIN_MS), ADMIN_MS / 1000, "Strict");
@@ -462,6 +510,7 @@ app.post("/api/admin/moderate", adminOnly, wrap(async (req, res) => {
 app.get("/api/polls/:id/export.csv", (req, res) => {
   const p = store.getPollView(req.params.id);
   if (!p) return send404(res);
+  if (p.agg.masked) return res.status(403).json({ error: "Resultados no disponibles durante la veda electoral." });
   const q = (s) => `"${String(s).replace(/"/g, '""')}"`;
   const labels = p.type === "single" || p.type === "multiple" ? p.options
     : p.type === "likert" ? ["Totalmente en desacuerdo", "En desacuerdo", "Neutral", "De acuerdo", "Totalmente de acuerdo"]
@@ -472,6 +521,8 @@ app.get("/api/polls/:id/export.csv", (req, res) => {
     rows.push([q(l), c, p.agg.n ? ((c / p.agg.n) * 100).toFixed(2) : "0.00", p.agg.byRegion.mx[i] || 0, p.agg.byRegion.ext[i] || 0].join(","));
   });
   rows.push(["participantes", p.agg.n, "", p.agg.regionN.mx, p.agg.regionN.ext].join(","));
+  rows.push([q("aviso"), q("Ejercicio de opinión no probabilístico (participación voluntaria). No es una encuesta por muestreo, no tiene margen de error y no representa a ninguna población. No debe usarse para inferir preferencias electorales."), "", "", ""].join(","));
+  rows.push([q("fuente"), q(`Contradicta · ${new Date().toISOString().slice(0, 10)} · ${PUBLIC_URL || ""}/p/${p.id}`), "", "", ""].join(","));
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="contradicta-${p.id}.csv"`);
   res.send(String.fromCharCode(0xfeff) + rows.join("\n"));
@@ -503,6 +554,7 @@ const fingerprint = (f) => crypto.createHash("sha256").update(fs.readFileSync(pa
 const indexHtml = fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8")
   .replace('src="/app.js"', `src="/app.js?v=${fingerprint("app.js")}"`)
   .replace('src="/i18n.js"', `src="/i18n.js?v=${fingerprint("i18n.js")}"`)
+  .replace('src="/legal.js"', `src="/legal.js?v=${fingerprint("legal.js")}"`)
   .replace('href="/styles.css"', `href="/styles.css?v=${fingerprint("styles.css")}"`);
 const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function page(title, desc) {
@@ -516,7 +568,8 @@ function page(title, desc) {
 app.get("/p/:id", (req, res) => {
   const p = store.getPollView(req.params.id);
   if (!p) return res.redirect("/");
-  res.type("html").send(page(`${p.title} · Contradicta`, `${p.agg.n} votos · tensión ${p.agg.tension == null ? "—" : Math.round(p.agg.tension * 100)}/100. Toma posición en Contradicta.`));
+  const resumen = p.agg.masked ? "Resultados ocultos durante la veda electoral." : `${p.agg.n} votos · tensión ${p.agg.tension == null ? "—" : Math.round(p.agg.tension * 100)}/100.`;
+  res.type("html").send(page(`${p.title} · Contradicta`, `${resumen} Ejercicio de opinión no probabilístico. Toma posición en Contradicta.`));
 });
 // Sin caché larga: el navegador revalida con ETag y siempre recibe la última versión tras un despliegue.
 app.use(express.static(PUBLIC, { index: false, maxAge: 0, setHeaders: (res) => res.setHeader("Cache-Control", "no-cache") }));
@@ -538,6 +591,9 @@ store.onRemoteChange(({ kind, pid, exists }) => {
     for (const s of SEED) await store.savePoll({ ...s, createdBy: "seed" });
     console.log(`Sembradas ${SEED.length} encuestas iniciales.`);
   }
+  // Al empezar o terminar una veda electoral, pedir a los navegadores que recarguen los resultados.
+  let vedaWas = vedaNow().active;
+  setInterval(() => { const v = vedaNow().active; if (v !== vedaWas) { vedaWas = v; broadcast("resync", {}); console.log(`Veda electoral ${v ? "iniciada" : "terminada"}`); } }, 30e3).unref();
   // Cierre automático de encuestas con fecha límite
   setInterval(() => {
     for (const p of store.allPolls()) if (!p.closed && p.closesAt && p.closesAt <= Date.now()) {

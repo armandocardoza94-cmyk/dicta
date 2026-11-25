@@ -114,7 +114,12 @@ async function api(method, url, body, retried){
   let data=null; try { data = await r.json(); } catch(_){}
   // El servidor pide verificación anti-bots: mostrar el reto y reintentar una vez con el token.
   const sitekey = data && (data.sitekey || S.meta.turnstile);
-  if (r.status===403 && data && data.needHuman && !retried && sitekey){
+  // Falta el consentimiento expreso: pedirlo y reintentar una vez.
+  if (r.status===403 && data && data.needConsent && retried!=="consent" && retried!==true){
+    await consentDialog(data.version);
+    return api(method, url, body, "consent");
+  }
+  if (r.status===403 && data && data.needHuman && retried!==true && sitekey){
     S.meta.turnstile = sitekey;   // por si la página se abrió antes de activar la verificación
     const token = await humanCheck();
     return api(method, url, {...(body||{}), turnstile: token}, true);
@@ -168,8 +173,36 @@ function humanCheck(){
   });
 }
 
+/* ---------- Consentimiento expreso (aviso de privacidad simplificado) ---------- */
+let consentPending = null;
+function consentDialog(version){
+  if (consentPending) return consentPending;   // varias acciones a la vez comparten la misma ventana
+  consentPending = new Promise((resolve, reject)=>{
+    const ov=document.createElement("div");
+    ov.className="modal";
+    ov.innerHTML=`<div class="modal-box consent-box" role="dialog" aria-modal="true" aria-labelledby="cs-t"><h3 id="cs-t">Antes de participar</h3>
+      <div translate="no">${window.LEGAL_DOCS ? LEGAL_DOCS.consentText() : ""}</div>
+      <label class="check" translate="no"><input type="checkbox" id="cs-adult"> <span>Confirmo que tengo <b>18 años o más</b>.</span></label>
+      <label class="check" translate="no"><input type="checkbox" id="cs-accept"> <span>He leído y acepto el <a href="#privacidad" target="_blank">aviso de privacidad</a> y los <a href="#terminos" target="_blank">términos y condiciones</a>, y <b>doy mi consentimiento expreso</b> para el tratamiento anónimo de mis opiniones.</span></label>
+      <div class="err" id="cs-err"></div>
+      <div class="row"><button class="btn" id="cs-ok" disabled>Aceptar y continuar</button><button class="btn ghost" id="cs-x">Ahora no</button></div></div>`;
+    document.body.appendChild(ov);
+    const ok=$("#cs-ok", ov), a=$("#cs-adult", ov), b=$("#cs-accept", ov);
+    const sync=()=>{ ok.disabled = !(a.checked && b.checked); };
+    a.addEventListener("change", sync); b.addEventListener("change", sync);
+    const done=(fn,v)=>{ ov.remove(); consentPending=null; fn(v); };
+    $("#cs-x", ov).addEventListener("click", ()=>done(reject, new Error("Para participar necesitas aceptar el aviso de privacidad.")));
+    ok.addEventListener("click", async ()=>{
+      ok.disabled=true;
+      try { await api("POST", "/api/consent", {version, adult:a.checked, accept:b.checked}); done(resolve, true); }
+      catch(e){ ok.disabled=false; $("#cs-err", ov).textContent=e.message; }
+    });
+  });
+  return consentPending;
+}
+
 /* ---------- Reportar contenido ---------- */
-const REASONS = [["ofensivo","Lenguaje ofensivo o insultos"],["odio","Discurso de odio o discriminación"],["spam","Spam o publicidad"],["datos_personales","Datos personales de alguien"],["desinformacion","Desinformación deliberada"],["otro","Otro motivo"]];
+const REASONS = [["ofensivo","Lenguaje ofensivo o insultos"],["odio","Discurso de odio o discriminación"],["violencia_genero","Violencia política contra las mujeres en razón de género"],["encuesta_electoral","Encuesta de intención de voto (no permitida)"],["spam","Spam o publicidad"],["datos_personales","Datos personales de alguien"],["desinformacion","Desinformación deliberada"],["otro","Otro motivo"]];
 function reportDialog(type, id){
   return new Promise(resolve=>{
     const ov=document.createElement("div");
@@ -224,8 +257,30 @@ function render(force){
   if (r==="debates") return renderDebates();
   if (r==="admin"){ if (force || S.builtFor!=="admin") renderAdminLogin(); return; }
   if (r==="moderar") return renderModeration();
+  if (r==="privacidad"||r==="terminos"||r==="metodologia"){ if (force || S.builtFor!==r) renderLegal(r); return; }
   if (r.startsWith("p-")) return renderDetail(r.slice(2), force);
   renderList();
+}
+
+/* ---------- Documentos legales ---------- */
+function renderLegal(doc){
+  S.builtFor=doc;
+  const v=$("#view");
+  if (!window.LEGAL_DOCS){ v.innerHTML=`<div class="empty">Cargando…</div>`; return; }
+  const L = S.meta.legal || {};
+  v.innerHTML = doc==="privacidad" ? LEGAL_DOCS.privacidad(L) : doc==="terminos" ? LEGAL_DOCS.terminos(L) : LEGAL_DOCS.metodologia(L, S.meta);
+  document.querySelectorAll(".legal-nav a").forEach(a=>a.classList.toggle("on", a.getAttribute("href")==="#"+doc));
+  const f=$("#forget-me");
+  if (f) f.addEventListener("click", async ()=>{
+    if (f.dataset.armed!=="1"){ f.dataset.armed="1"; f.textContent="¿Seguro? Pulsa de nuevo para borrar todo"; return; }
+    f.disabled=true;
+    try {
+      const d = await api("DELETE", "/api/me");
+      $("#forget-note").textContent = `Listo: se eliminaron ${d.deleted} registros y este dispositivo tiene un identificador nuevo.`;
+      f.textContent="Datos eliminados";
+      S.draft={}; loadAll();
+    } catch(e){ f.disabled=false; $("#forget-note").textContent=e.message; }
+  });
 }
 window.addEventListener("hashchange", ()=>{
   const r = route();
@@ -524,6 +579,11 @@ function renderResults(p){
   const t = p.agg;
   const mine = p.myVote;
   let body="";
+  const legend = `<p class="legal-note">Ejercicio de opinión no probabilístico: no es una encuesta por muestreo, no tiene margen de error y no representa a la población. <a href="#metodologia">Metodología</a></p>`;
+  if (t.masked){
+    box.innerHTML = `<h4>Resultados en vivo</h4><div class="veda-box"><b>Veda electoral</b><p>Los resultados de las encuestas de política nacional se ocultan durante la veda electoral (LGIPE, art. 213). Puedes seguir votando: se mostrarán al terminar la veda.</p><div class="stats"><span>Votos <b>${fmt(t.n)}</b></span></div></div>${legend}`;
+    return;
+  }
   if (t.n===0){ body = `<div class="note">Todavía no hay votos. La contradicción espera ser expresada.</div>`; }
   else if (p.type==="single"||p.type==="multiple"){
     const mineSet = new Set(Array.isArray(mine)?mine:(mine!==null&&mine!==undefined?[mine]:[]));
@@ -550,13 +610,14 @@ function renderResults(p){
       <div class="big"><b>${tp===null?"—":tp}</b><span>${tensionLabel(t.tension)}</span></div>
       <div class="tmeter">${tp===null?"":`<i style="left:calc(${tp}% - 1px)"></i>`}</div>
       <div class="note" style="margin-top:6px">Índice de tensión (0–100): cuán dividida está la opinión. 0 = unanimidad; 100 = polarización máxima.</div>
-    </div>`;
+    </div>${legend}`;
 }
 
 /* México vs. extranjero */
 function renderCompare(p){
   const box=$("#cmp-panel"); if (!box) return;
   const t=p.agg, N=t.regionN;
+  if (t.masked){ box.innerHTML = `<h4>México vs. el extranjero</h4><div class="note">Oculto durante la veda electoral.</div>`; return; }
   if (!N.mx && !N.ext){ box.innerHTML = `<h4>México vs. el extranjero</h4><div class="note">Aún no hay votos con región indicada. Elige arriba desde dónde participas para que tu voto entre en la comparación.</div>`; return; }
   let body="";
   if (p.type==="likert"||p.type==="spectrum"){
@@ -802,6 +863,7 @@ function renderCreate(){
       <div class="field"><label>Tipo de encuesta</label>
         <div class="types">${Object.entries(TYPES).map(([k,t])=>`<button type="button" data-t="${k}"><b>${t.name}</b><small>${t.desc}</small></button>`).join("")}</div></div>
       <div id="typed"></div>
+      <label class="check"><input type="checkbox" id="cnoel"> <span>Confirmo que esta pregunta <b>no mide intención de voto</b> ni preferencias por candidaturas, partidos o coaliciones (no permitidas por la ley electoral). <a href="#terminos" target="_blank">Más información</a></span></label>
       <div class="err" id="cerr"></div>
       <div class="row"><button class="btn" type="submit" id="csub">Publicar encuesta</button><span class="note">Podrás cerrarla o eliminarla desde este dispositivo.</span></div>
     </form>`;
@@ -813,7 +875,8 @@ function renderCreate(){
     const err=$("#cerr"); err.textContent="";
     const title=$("#ct").value.trim();
     if (title.length<5){ err.textContent="Escribe una pregunta (mínimo 5 caracteres)."; return; }
-    const body = {title, description:$("#cd").value.trim(), category:$("#cc").value, type:st.type};
+    if (!$("#cnoel").checked){ err.textContent="Confirma que la pregunta no mide intención de voto por candidaturas, partidos o coaliciones."; return; }
+    const body = {title, description:$("#cd").value.trim(), category:$("#cc").value, type:st.type, noElectoral:true};
     const cz=$("#cz").value; if (cz){ const ts=new Date(cz).getTime(); if (!(ts>Date.now())){ err.textContent="La fecha de cierre debe estar en el futuro."; return; } body.closesAt=ts; }
     if (st.type==="single"||st.type==="multiple"){
       const opts = st.options.map(o=>o.trim()).filter(Boolean);
@@ -835,10 +898,20 @@ function renderCreate(){
   });
 }
 
+/* Aviso de veda electoral bajo la barra de estado */
+function paintVeda(){
+  let el=$("#veda-note");
+  const v=S.meta.veda||{};
+  if (!v.active){ if (el) el.remove(); return; }
+  if (!el){ el=document.createElement("div"); el.id="veda-note"; el.className="veda-note"; $("#status").after(el); }
+  el.innerHTML = `<b>Veda electoral en curso</b> · hasta el ${new Date(v.until).toLocaleString(I18N.locale(),{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})}. Se ocultan los resultados de las encuestas de política nacional (LGIPE, art. 213).`;
+}
+
 /* ---------- Administración ---------- */
 async function loadMeta(){
-  try { const m = await api("GET", "/api/meta"); S.meta = {admin:!!m.admin, turnstile:m.turnstile||null, reportHideAt:m.reportHideAt, voteLockMs:m.voteLockMs}; } catch(_){}
+  try { const m = await api("GET", "/api/meta"); S.meta = {admin:!!m.admin, turnstile:m.turnstile||null, reportHideAt:m.reportHideAt, voteLockMs:m.voteLockMs, legal:m.legal||{}, consentVersion:m.consentVersion, veda:m.veda||{active:false}}; } catch(_){}
   paintAdminTab();
+  paintVeda();
 }
 function paintAdminTab(){
   let a = document.querySelector('#tabs a[data-r="moderar"]');
@@ -930,7 +1003,7 @@ function renderAbout(){
 function onData(){
   paintStatus();
   const r = route();
-  if (r==="crear"||r==="manifiesto"||r==="admin"||r==="moderar") return;
+  if (["crear","manifiesto","admin","moderar","privacidad","terminos","metodologia"].includes(r)) return;
   if (r==="pulso") return renderPulse();
   if (r==="debates") return renderDebates();
   if (r.startsWith("p-")){
@@ -966,7 +1039,7 @@ function connect(){
   es.addEventListener("online", e=>{ try { S.online=JSON.parse(e.data).online; } catch(_){} paintStatus(); });
   es.addEventListener("poll", e=>{ try { const p=JSON.parse(e.data); mergePoll(p); refreshStats(); scheduleStats(); onData(); } catch(_){} });
   es.addEventListener("deleted", e=>{ try { const {id}=JSON.parse(e.data); S.polls.delete(id); scheduleStats(); onData(); } catch(_){} });
-  es.addEventListener("resync", ()=>{ loadAll(); if (S.detail.id) loadDetail(S.detail.id); });
+  es.addEventListener("resync", ()=>{ loadMeta(); loadAll(); if (S.detail.id) loadDetail(S.detail.id); });
   es.addEventListener("comments", async e=>{
     try {
       const {pollId}=JSON.parse(e.data);
@@ -1015,7 +1088,7 @@ store("adminToken", null);   // limpia la contraseña guardada por versiones ant
 // Al cambiar de idioma, redibujar para que fechas y textos calculados usen el idioma nuevo.
 window.addEventListener("langchange", ()=>{ if (route()!=="crear") { S.builtFor=null; render(true); } paintStatus(); });
 paintRegion();
-loadMeta().then(()=>{ if (["admin","moderar"].includes(route())) render(true); });
+loadMeta().then(()=>{ if (["admin","moderar","privacidad","terminos","metodologia"].includes(route())) render(true); });
 render(true);
 loadAll();
 connect();
