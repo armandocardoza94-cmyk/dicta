@@ -389,3 +389,6 @@ mark.pend{background:rgba(255,184,107,.18);color:#ffcf9a;border-radius:6px;paddi
 #view:focus{outline:none}
 .notfound .nf-code{font-family:var(--display);font-size:72px;font-weight:700;margin:0;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
 @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+/* Formularios en pantallas angostas: una columna y campos que no desbordan */
+.field input,.field select,.field textarea,.two>*{min-width:0;max-width:100%}
+@media (max-width:560px){.two{grid-template-columns:1fr}.form{padding:20px 16px}}
