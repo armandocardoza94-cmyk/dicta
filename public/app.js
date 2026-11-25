@@ -284,23 +284,27 @@ function autoBadge(p){
   return "";
 }
 // Traducción automática local: solo si el navegador ya tiene el modelo disponible (no descarga nada ni envía datos).
-let autoQueue = new Set(), autoTimer = null, translators = {};
+let autoQueue = new Set(), autoTimer = null, translators = {}, autoOff = false, autoBusy = false;
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, ko)=>setTimeout(()=>ko(new Error("timeout")), ms))]);
 function queueAuto(s, lang){
-  if (!("Translator" in self) || lang!=="en" || autoQueue.has(s) || s.length > 600) return;
+  if (autoOff || !("Translator" in self) || lang!=="en" || autoQueue.has(s) || s.length > 600) return;
   autoQueue.add(s); clearTimeout(autoTimer); autoTimer = setTimeout(runAuto, 250);
 }
 async function runAuto(){
+  if (autoBusy || autoOff) { if (!autoOff) autoTimer = setTimeout(runAuto, 500); return; }
+  autoBusy = true;
   const lang = I18N.lang(), items = [...autoQueue]; autoQueue.clear();
   try {
     if (!translators[lang]) {
-      const av = await self.Translator.availability({sourceLanguage:"es", targetLanguage:lang});
-      if (av !== "available") return;
-      translators[lang] = await self.Translator.create({sourceLanguage:"es", targetLanguage:lang});
+      // Si el traductor del navegador no responde pronto o no tiene el modelo listo, se desactiva en esta visita.
+      const av = await withTimeout(self.Translator.availability({sourceLanguage:"es", targetLanguage:lang}), 3000);
+      if (av !== "available") { autoOff = true; return; }
+      translators[lang] = await withTimeout(self.Translator.create({sourceLanguage:"es", targetLanguage:lang}), 5000);
     }
     let added = 0;
     for (const s of items) {
       if (autoTr.has(lang+"|"+s)) continue;
-      const out = await translators[lang].translate(s);
+      const out = await withTimeout(translators[lang].translate(s), 5000);
       if (out && out !== s) { autoTr.set(lang+"|"+s, out); added++; }
     }
     if (added) {
@@ -308,7 +312,8 @@ async function runAuto(){
       const r = route(), typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
       if (r!=="crear" && !typing) { S.builtFor=null; render(true); }
     }
-  } catch(_){}
+  } catch(_){ autoOff = true; }
+  finally { autoBusy = false; }
 }
 
 /* ---------- Rutas ---------- */
