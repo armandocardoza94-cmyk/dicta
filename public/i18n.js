@@ -9,9 +9,6 @@
  *   - DICT[idioma]["Texto exacto en español"] = "Traducción"
  *   - RULES[idioma] = [[/expresión con números/, reemplazo], ...] para textos con cifras.
  * Lo que no esté traducido se muestra en español.
- *
- * Náhuatl: traducción PRELIMINAR y parcial. Debe revisarla gente hablante (por ejemplo un
- * traductor certificado del padrón PANITLI del INALI) antes de difundirla.
  */
 (() => {
 "use strict";
@@ -19,7 +16,6 @@
 const LANGS = [
   { code: "es",  name: "Español",            htmlLang: "es-MX", locale: "es-MX" },
   { code: "en",  name: "English",            htmlLang: "en",    locale: "en-US" },
-  { code: "nah", name: "Nāhuatlahtōlli",     htmlLang: "nah",   locale: "es-MX", preliminary: "náhuatl" },
 ];
 
 /* ---------------------------------------------------------------- Inglés ---- */
@@ -344,16 +340,8 @@ const EN_RULES = [
   [/^Tu navegador/, (m) => m],
 ];
 
-/* ------------------------------------------------- Lenguas indígenas -------- */
-// Traducción preliminar y parcial: solo textos breves y muy visibles. Pendiente de revisión por hablantes.
-const NAH = {
-  "Encuestas": "Tlatlaniliztli", "México": "Mexihco",
-  "Toma posición": "Xiquihto tlen ticnemilia", "Tu posición": "Motlahtol",
-  "¿Qué opinas? Responde a la pregunta o a otra postura…": "¿Tlen ticnemilia?…",
-  "Gracias. Lo revisaremos.": "Tlazohcamati.",
-};
-const DICT = { en: EN, nah: NAH };
-const RULES = { en: EN_RULES, nah: [] };
+const DICT = { en: EN };
+const RULES = { en: EN_RULES };
 
 /* ------------------------------------------------------------- Motor -------- */
 const stored = (() => { try { return localStorage.getItem("lang"); } catch (_) { return null; } })();

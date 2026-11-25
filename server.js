@@ -576,7 +576,7 @@ app.put("/api/account", limit("account", 60, 120, 600e3), requireUser, wrap(asyn
   if (b.prefs && typeof b.prefs === "object") {
     if (FREQS.includes(b.prefs.emailFreq)) prefs.emailFreq = b.prefs.emailFreq;
     if (typeof b.prefs.emailConsent === "boolean") prefs.emailConsent = b.prefs.emailConsent;
-    if (["es", "en", "nah"].includes(b.prefs.lang)) prefs.lang = b.prefs.lang;
+    if (["es", "en"].includes(b.prefs.lang)) prefs.lang = b.prefs.lang;
     if (b.prefs.triggers && typeof b.prefs.triggers === "object") {
       prefs.triggers = {};
       for (const k of ["newPoll", "debate", "shift", "closing"]) if (typeof b.prefs.triggers[k] === "boolean") prefs.triggers[k] = b.prefs.triggers[k];
